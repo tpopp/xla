@@ -56,6 +56,21 @@ class BestFitRepacker
     }
   }
 
+  // Sorting by initial offset gives better buffer order stability between
+  // related programs improving the success rate for cross-program prefetching.
+  BufferIntervalCompare GetTemporalBufferIntervalCompare() const override {
+    return LessThanByKey([this](const BufferInterval& x) {
+      int64_t x_end = x.end;
+      for (auto colocation : GetTransitiveColocations(x)) {
+        x_end = std::max(x_end, buffer_intervals_.at(colocation).end);
+      }
+      // Sort by duration (descending), size (descending), initial offset
+      // (ascending), buffer (ascending).
+      return std::make_tuple(x.start - x_end, -x.size, x.buffer->initial_offset,
+                             std::cref(*x.buffer));
+    });
+  }
+
   bool Repack() {
     Finish();
     bool success = result_.heap_size <= max_size_;
