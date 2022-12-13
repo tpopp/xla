@@ -17,11 +17,13 @@ limitations under the License.
 
 #include <algorithm>
 #include <memory>
+#include <vector>
 
 #include "absl/container/flat_hash_set.h"
 #include "xla/hlo/ir/hlo_computation.h"
 #include "xla/hlo/ir/hlo_instruction.h"
 #include "xla/hlo/ir/hlo_opcode.h"
+#include "xla/service/gpu/gpu_device_info.h"
 #include "xla/test_helpers.h"
 #include "xla/tests/hlo_test_base.h"
 #include "xla/tests/test_utils.h"
@@ -37,10 +39,12 @@ class GpuHloScheduleTest : public HloTestBase {
   // Pre-canned shapes.
   Shape f32_2x2_ = ShapeUtil::MakeShape(F32, {2, 2});
 
-  static SequentialHloOrdering BuildHloOrdering(HloModule* module) {
-    HloSchedule schedule =
-        ScheduleGpuModule(module, /*pointer_size=*/8).value();
-    return SequentialHloOrdering{schedule};
+  SequentialHloOrdering BuildHloOrdering(HloModule* module) {
+    Backend& test_backend = backend();
+    const GpuDeviceInfo gpu_device_info =
+        GetGpuDeviceInfo(test_backend.default_stream_executor());
+    TF_CHECK_OK(ScheduleGpuModule(module, /*pointer_size=*/8, gpu_device_info));
+    return SequentialHloOrdering{module->schedule()};
   }
 
   std::unique_ptr<HloModule> CreateNewVerifiedModule() {
