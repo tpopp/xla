@@ -384,6 +384,7 @@ cc_library(
     srcs = ["hlo_xla_runtime_pipeline.cc"],
     hdrs = ["hlo_xla_runtime_pipeline.h"],
     deps = [
+        "//third_party/tensorflow/compiler/mlir/tfrt/jit/transforms:tf_jitrt_passes",
         "//xla:status",
         "//xla/mlir/backends/cpu/transforms:passes",
         "//xla/mlir/framework/transforms:passes",

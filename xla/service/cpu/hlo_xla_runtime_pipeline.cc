@@ -37,10 +37,10 @@ limitations under the License.
 #include "mlir/Dialect/Shape/Transforms/Passes.h"  // from @llvm-project
 #include "mlir/Dialect/SparseTensor/Transforms/Passes.h"  // from @llvm-project
 #include "mlir/Dialect/Tensor/Transforms/BufferizableOpInterfaceImpl.h"  // from @llvm-project
-#include "mlir/Dialect/Tensor/Transforms/Passes.h"  // from @llvm-project
 #include "mlir/Dialect/Vector/Transforms/BufferizableOpInterfaceImpl.h"  // from @llvm-project
 #include "mlir/Pass/PassManager.h"  // from @llvm-project
 #include "mlir/Transforms/Passes.h"  // from @llvm-project
+#include "third_party/tensorflow/compiler/mlir/tfrt/jit/transforms/tf_jitrt_passes.h"
 #include "xla/mlir/backends/cpu/transforms/passes.h"
 #include "xla/mlir/framework/transforms/passes.h"
 #include "xla/mlir/runtime/transforms/compiler.h"
@@ -198,6 +198,10 @@ static Status CreateHloXlaPipeline(
     pm.addPass(mlir::hlo::createOneShotBufferizePass());
   }
 
+  if (options.enable_tiling_and_fusion) {
+    pm.addNestedPass<FuncOp>(mlir::gml_st::createVectorizeCopyPass());
+    pm.addNestedPass<FuncOp>(mlir::gml_st::createSimplifyDeadCopyPass());
+  }
   // Handle framework specific requirements for buffers and then insert
   // deallocations for temporary buffers.
   pm.addNestedPass<mlir::func::FuncOp>(mlir::createConvertLinalgToLoopsPass());
@@ -229,9 +233,6 @@ static Status CreateHloXlaPipeline(
   // pm.addNestedPass<mlir::func::FuncOp>(CreateLinalgMatmulSpecializationPass());
   pm.addPass(mlir::createCanonicalizerPass());
 
-  // Tile and vectorize linalg operation using Linalg Codegen Strategy.
-  // pm.addNestedPass<mlir::func::FuncOp>(CreateCodegenStrategyForMatMulPass());
-
   // TODO(tpopp): Move hits to mlir::hlo::createGenericHostToLLVMPass?
   pm.addNestedPass<mlir::func::FuncOp>(
       mlir::createConvertComplexToStandardPass());
@@ -239,10 +240,12 @@ static Status CreateHloXlaPipeline(
   pm.addPass(mlir::createCSEPass());
   pm.addPass(mlir::createCanonicalizerPass());
 
+  pm.addNestedPass<FuncOp>(tensorflow::CreateLowerVectorTransposePass());
   mlir::VectorTransferToSCFOptions vec_to_scf_options;
   vec_to_scf_options.unroll = true;
   pm.addNestedPass<mlir::func::FuncOp>(
       mlir::createConvertVectorToSCFPass(vec_to_scf_options));
+  pm.addNestedPass<FuncOp>(tensorflow::createRewriteVectorMultiReductionPass());
 
   return OkStatus();
 }
