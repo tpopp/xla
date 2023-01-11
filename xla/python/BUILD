@@ -658,15 +658,20 @@ cc_library(
     features = ["-use_header_modules"],
     deps = [
         ":types",
+        "//third_party/jsoncpp:json",
         "//xla:status",
         "//xla/backends/profiler:profiler_backends",
         "//xla/backends/profiler/cpu:python_tracer",
         "//xla/python/profiler/internal:traceme_wrapper",
         "@pybind11",
+        "@tsl//tsl/platform:protobuf",
         "@tsl//tsl/profiler/lib:profiler_session",
         "@tsl//tsl/profiler/rpc:profiler_server_impl",
         "@tsl//tsl/profiler/rpc/client:capture_profile",
-        "@tsl//tsl/profiler/rpc/client:profiler_client",
+        "@tsl//tsl/profiler/utils:tf_xplane_visitor",
+        "@tsl//tsl/profiler/utils:xplane_schema",
+        "@tsl//tsl/profiler/utils:xplane_utils",
+        "@tsl//tsl/profiler/utils:xplane_visitor",
     ],
 )
 
