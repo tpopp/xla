@@ -93,20 +93,15 @@ const filter_action = async ({github, context, domain}) => {
     assignees.push('rino20', 'yyoon', 'lenscloth');
   }
 
-  // Add default reviewers if none were added or add kokoro label.
-  if (assignees.length == 0) {
-    assignees.push('xla-rotation', 'tpopp', 'ddunl');
-  } else {
-    const resp_label = await github.rest.issues.addLabels({
-      issue_number: context.issue.number,
-      owner: context.repo.owner,
-      repo: context.repo.repo,
-      labels: labels
-    });
-    if (resp_label.status >= 400) {
-      console.log(resp_label);
-      throw 'Error adding labels to PR';
-    }
+  const resp_label = await github.rest.issues.addLabels({
+    issue_number: context.issue.number,
+    owner: context.repo.owner,
+    repo: context.repo.repo,
+    labels: labels
+  });
+  if (resp_label.status >= 400) {
+    console.log(resp_label);
+    throw 'Error adding labels to PR';
   }
 
   if (assignees.length > 0) {
