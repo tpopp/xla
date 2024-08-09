@@ -17,13 +17,17 @@ limitations under the License.
 
 #include <cstdint>
 #include <memory>
+#include <string>
 #include <vector>
 
-#include "xla/hlo/ir/hlo_casting_utils.h"
+#include "absl/strings/str_cat.h"
+#include "xla/hlo/ir/backend_config.h"
 #include "xla/literal.h"
 #include "xla/literal_util.h"
 #include "xla/service/buffer_assignment.h"
+#include "xla/service/gpu/backend_configs.pb.h"
 #include "xla/service/gpu/hlo_traversal.h"
+#include "xla/shape_util.h"
 #include "xla/tests/hlo_test_base.h"
 #include "xla/types.h"
 #include "xla/util.h"
@@ -36,7 +40,7 @@ namespace gpu {
 
 using ::tsl::testing::IsOkAndHolds;
 
-class IrEmissionUtilsTest : public HloTestBase {};
+using IrEmissionUtilsTest = HloTestBase;
 
 TEST_F(IrEmissionUtilsTest, FindTiledLogicalTranspose) {
   const char* hlo = R"(
@@ -57,6 +61,92 @@ ENTRY entry {
   EXPECT_EQ(result->instr, tr);
   EXPECT_EQ(result->dimensions, Vector3({1, 64, 1536}));
   EXPECT_EQ(result->permutation, Vector3({0, 2, 1}));
+}
+
+TEST_F(IrEmissionUtilsTest, FindTiledLogical102Transpose) {
+  const char* hlo = R"(
+HloModule module
+
+ENTRY entry {
+  p = f32[32,48,2]{2,1,0} parameter(0)
+  ROOT t = f32[48,32,2]{2,1,0} transpose(p), dimensions={1,0,2}
+}
+)";
+  TF_ASSERT_OK_AND_ASSIGN(std::unique_ptr<HloModule> module,
+                          ParseAndReturnVerifiedModule(hlo));
+  auto& debug_options = module->mutable_config().mutable_debug_options();
+  debug_options.set_xla_gpu_mlir_emitter_level(3);
+
+  HloInstruction* tr = module->entry_computation()->root_instruction();
+
+  auto result = GetDescriptionForTiledTransposeEmitter(*tr, *tr);
+  EXPECT_TRUE(result.has_value());
+  EXPECT_EQ(result->instr, tr);
+  EXPECT_EQ(result->dimensions, Vector3({48, 32, 2}));
+  EXPECT_EQ(result->permutation, Vector3({1, 0, 2}));
+}
+
+TEST_F(IrEmissionUtilsTest, FindTiledLogical102TransposeTooMuchMemoryRequired) {
+  const char* hlo = R"(
+HloModule module
+
+ENTRY entry {
+  p = s8[32,48,9]{2,1,0} parameter(0)
+  ROOT t = s8[48,32,9]{2,1,0} transpose(p), dimensions={1,0,2}
+}
+)";
+  TF_ASSERT_OK_AND_ASSIGN(std::unique_ptr<HloModule> module,
+                          ParseAndReturnVerifiedModule(hlo));
+  auto& debug_options = module->mutable_config().mutable_debug_options();
+  debug_options.set_xla_gpu_mlir_emitter_level(3);
+
+  HloInstruction* tr = module->entry_computation()->root_instruction();
+
+  auto result = GetDescriptionForTiledTransposeEmitter(*tr, *tr);
+  EXPECT_FALSE(result.has_value());
+}
+
+TEST_F(IrEmissionUtilsTest, FindTiled102Transpose) {
+  const char* hlo = R"(
+HloModule module
+
+ENTRY entry {
+  p = s16[32,48,4]{2,1,0} parameter(0)
+  ROOT t = s16[32,48,4]{2,0,1} copy(p)
+}
+)";
+  TF_ASSERT_OK_AND_ASSIGN(std::unique_ptr<HloModule> module,
+                          ParseAndReturnVerifiedModule(hlo));
+  auto& debug_options = module->mutable_config().mutable_debug_options();
+  debug_options.set_xla_gpu_mlir_emitter_level(3);
+
+  HloInstruction* tr = module->entry_computation()->root_instruction();
+
+  auto result = GetDescriptionForTiledTransposeEmitter(*tr, *tr);
+  EXPECT_TRUE(result.has_value());
+  EXPECT_EQ(result->instr, tr);
+  EXPECT_EQ(result->dimensions, Vector3({48, 32, 4}));
+  EXPECT_EQ(result->permutation, Vector3({1, 0, 2}));
+}
+
+TEST_F(IrEmissionUtilsTest, FindTiled102TransposeTooMuchMemoryRequired) {
+  const char* hlo = R"(
+HloModule module
+
+ENTRY entry {
+  p = s8[32,48,9]{2,1,0} parameter(0)
+  ROOT t = s8[32,48,9]{2,0,1} copy(p)
+}
+)";
+  TF_ASSERT_OK_AND_ASSIGN(std::unique_ptr<HloModule> module,
+                          ParseAndReturnVerifiedModule(hlo));
+  auto& debug_options = module->mutable_config().mutable_debug_options();
+  debug_options.set_xla_gpu_mlir_emitter_level(3);
+
+  HloInstruction* tr = module->entry_computation()->root_instruction();
+
+  auto result = GetDescriptionForTiledTransposeEmitter(*tr, *tr);
+  EXPECT_FALSE(result.has_value());
 }
 
 TEST_F(IrEmissionUtilsTest, FindAnyTiledTranspose) {
@@ -561,18 +651,21 @@ TEST_F(IrEmissionUtilsTest, IsContiguousSlice) {
 HloModule module
 
 ENTRY entry {
-  p = f32[8,12,100,11]{3,2,1,0} parameter(0)
-  slice.1 = f32[2,12,100,11]{3,2,1,0} slice(p), slice={[1:3], [0:12], [0:100], [0:11]}
-  slice.2 = f32[1,1,1,11]{3,2,1,0} slice(p), slice={[1:2], [0:1], [0:1], [0:11]}
-  slice.3 = f32[1,1,10,11]{3,2,1,0} slice(p), slice={[1:2], [0:1], [0:10], [0:11]}
-  slice.4 = f32[1,2,10,11]{3,2,1,0} slice(p), slice={[1:2], [0:2], [0:10], [0:11]}
-  slice.5 = f32[8,2,100,11]{3,2,1,0} slice(p), slice={[0:8], [10:12], [0:100], [0:11]}
-  c = f32[8,12,100,11]{0,1,3,2} copy(p)
+  p0 = f32[8,12,100,11]{3,2,1,0} parameter(0)
+  p1 = f32[4]{0} parameter(1)
+  c = f32[8,12,100,11]{0,1,3,2} copy(p0)
+  slice.1 = f32[2,12,100,11]{3,2,1,0} slice(p0), slice={[1:3], [0:12], [0:100], [0:11]}
+  slice.2 = f32[1,1,1,11]{3,2,1,0} slice(p0), slice={[1:2], [0:1], [0:1], [0:11]}
+  slice.3 = f32[1,1,10,11]{3,2,1,0} slice(p0), slice={[1:2], [0:1], [0:10], [0:11]}
+  slice.4 = f32[1,2,10,11]{3,2,1,0} slice(p0), slice={[1:2], [0:2], [0:10], [0:11]}
+  slice.5 = f32[8,2,100,11]{3,2,1,0} slice(p0), slice={[0:8], [10:12], [0:100], [0:11]}
   slice.6 = f32[8,12,40,11]{0,1,3,2} slice(c), slice={[0:8], [0:12], [10:50], [0:11]}
   slice.7 = f32[8,12,1,2]{0,1,3,2} slice(c), slice={[0:8], [0:12], [0:1], [0:2]}
   slice.8 = f32[8,2,100,11]{0,1,3,2} slice(c), slice={[0:8], [0:2], [0:100], [0:11]}
   slice.9 = f32[8,2,40,11]{0,1,3,2} slice(c), slice={[0:8], [10:12], [10:50], [0:11]}
-  slice.10 = f32[8,2,50,11]{3,2,1,0} slice(p), slice={[0:8:1], [10:12:1], [0:100:2], [0:11:1]}
+  slice.10 = f32[8,2,50,11]{3,2,1,0} slice(p0), slice={[0:8:1], [10:12:1], [0:100:2], [0:11:1]}
+  slice.11 = f32[2]{0} slice(p1), slice={[0:3:2]}
+  slice.12 = f32[1]{0} slice(p1), slice={[0:1:2]}
   ROOT t = (f32[2,12,100,11]{3,2,1,0},
             f32[1,1,1,11]{3,2,1,0},
             f32[1,1,10,11]{3,2,1,0},
@@ -582,7 +675,9 @@ ENTRY entry {
             f32[8,12,1,2]{0,1,3,2},
             f32[8,2,100,11]{0,1,3,2},
             f32[8,2,40,11]{0,1,3,2},
-            f32[8,2,50,11]{3,2,1,0}) tuple(slice.1, slice.2, slice.3, slice.4, slice.5, slice.6, slice.7, slice.8, slice.9, slice.10)
+            f32[8,2,50,11]{3,2,1,0},
+            f32[2]{0},
+            f32[1]{0}) tuple(slice.1, slice.2, slice.3, slice.4, slice.5, slice.6, slice.7, slice.8, slice.9, slice.10, slice.11, slice.12)
 }
 )";
 
@@ -609,16 +704,22 @@ ENTRY entry {
       module->entry_computation()->GetInstructionWithName("slice.9");
   HloInstruction* slice10 =
       module->entry_computation()->GetInstructionWithName("slice.10");
+  HloInstruction* slice11 =
+      module->entry_computation()->GetInstructionWithName("slice.11");
+  HloInstruction* slice12 =
+      module->entry_computation()->GetInstructionWithName("slice.12");
   EXPECT_TRUE(IsContiguousSlice(*slice1));
   EXPECT_TRUE(IsContiguousSlice(*slice2));
   EXPECT_TRUE(IsContiguousSlice(*slice3));
-  EXPECT_TRUE(!IsContiguousSlice(*slice4));
-  EXPECT_TRUE(!IsContiguousSlice(*slice5));
+  EXPECT_FALSE(IsContiguousSlice(*slice4));
+  EXPECT_FALSE(IsContiguousSlice(*slice5));
   EXPECT_TRUE(IsContiguousSlice(*slice6));
   EXPECT_TRUE(IsContiguousSlice(*slice7));
-  EXPECT_TRUE(!IsContiguousSlice(*slice8));
-  EXPECT_TRUE(!IsContiguousSlice(*slice9));
-  EXPECT_TRUE(!IsContiguousSlice(*slice10));
+  EXPECT_FALSE(IsContiguousSlice(*slice8));
+  EXPECT_FALSE(IsContiguousSlice(*slice9));
+  EXPECT_FALSE(IsContiguousSlice(*slice10));
+  EXPECT_FALSE(IsContiguousSlice(*slice11));
+  EXPECT_TRUE(IsContiguousSlice(*slice12));
 }
 
 TEST_F(IrEmissionUtilsTest, LiteralToAttrToXlaFormat) {
@@ -688,12 +789,13 @@ ENTRY main {
   auto fusion = module->entry_computation()->root_instruction();
   BufferAllocation alloc(/*index=*/0, /*size=*/1024, /*color=*/0);
   BufferAllocation::Slice slice0(&alloc, 0, 10);
+  auto adaptor = HloFusionAdaptor::ForInstruction(fusion);
   EXPECT_THAT(CanEmitFusedDynamicUpdateSliceInPlaceForGpu(
-                  Cast<HloFusionInstruction>(fusion),
+                  *adaptor,
                   [&slice0](const HloInstruction*, const ShapeIndex&) {
                     return slice0;
                   },
-                  HloFusionAdaptor::ForInstruction(fusion)->GetRoots()),
+                  fusion),
               IsOkAndHolds(true));
 }
 
@@ -727,12 +829,13 @@ ENTRY main {
   auto fusion = module->entry_computation()->root_instruction();
   BufferAllocation alloc(/*index=*/0, /*size=*/1024, /*color=*/0);
   BufferAllocation::Slice slice0(&alloc, 0, 10);
+  auto adaptor = HloFusionAdaptor::ForInstruction(fusion);
   EXPECT_THAT(CanEmitFusedDynamicUpdateSliceInPlaceForGpu(
-                  Cast<HloFusionInstruction>(fusion),
+                  *adaptor,
                   [&slice0](const HloInstruction*, const ShapeIndex&) {
                     return slice0;
                   },
-                  HloFusionAdaptor::ForInstruction(fusion)->GetRoots()),
+                  fusion),
               IsOkAndHolds(false));
 }
 
@@ -767,8 +870,9 @@ ENTRY main {
   BufferAllocation alloc(/*index=*/0, /*size=*/1024, /*color=*/0);
   BufferAllocation::Slice slice0(&alloc, 0, 10);
   BufferAllocation::Slice slice1(&alloc, 10, 20);
+  auto adaptor = HloFusionAdaptor::ForInstruction(fusion);
   EXPECT_THAT(CanEmitFusedDynamicUpdateSliceInPlaceForGpu(
-                  Cast<HloFusionInstruction>(fusion),
+                  *adaptor,
                   [fusion, &slice0, &slice1](const HloInstruction* instr,
                                              const ShapeIndex&) {
                     if (instr == fusion) {
@@ -776,7 +880,7 @@ ENTRY main {
                     }
                     return slice1;
                   },
-                  HloFusionAdaptor::ForInstruction(fusion)->GetRoots()),
+                  fusion),
               IsOkAndHolds(false));
 }
 
@@ -810,12 +914,13 @@ ENTRY main {
   auto fusion = module->entry_computation()->root_instruction();
   BufferAllocation alloc(/*index=*/0, /*size=*/1024, /*color=*/0);
   BufferAllocation::Slice slice0(&alloc, 0, 10);
+  auto adaptor = HloFusionAdaptor::ForInstruction(fusion);
   EXPECT_THAT(CanEmitFusedDynamicUpdateSliceInPlaceForGpu(
-                  Cast<HloFusionInstruction>(fusion),
+                  *adaptor,
                   [&slice0](const HloInstruction*, const ShapeIndex&) {
                     return slice0;
                   },
-                  HloFusionAdaptor::ForInstruction(fusion)->GetRoots()),
+                  fusion),
               IsOkAndHolds(false));
 }
 
@@ -853,12 +958,13 @@ ENTRY main {
   auto fusion = module->entry_computation()->root_instruction();
   BufferAllocation alloc(/*index=*/0, /*size=*/1024, /*color=*/0);
   BufferAllocation::Slice slice0(&alloc, 0, 10);
+  auto adaptor = HloFusionAdaptor::ForInstruction(fusion);
   EXPECT_THAT(CanEmitFusedDynamicUpdateSliceInPlaceForGpu(
-                  Cast<HloFusionInstruction>(fusion),
+                  *adaptor,
                   [&slice0](const HloInstruction*, const ShapeIndex&) {
                     return slice0;
                   },
-                  HloFusionAdaptor::ForInstruction(fusion)->GetRoots()),
+                  fusion),
               IsOkAndHolds(true));
 }
 
@@ -898,12 +1004,13 @@ ENTRY main {
   auto fusion = module->entry_computation()->root_instruction();
   BufferAllocation alloc(/*index=*/0, /*size=*/1024, /*color=*/0);
   BufferAllocation::Slice slice0(&alloc, 0, 10);
+  auto adaptor = HloFusionAdaptor::ForInstruction(fusion);
   EXPECT_THAT(CanEmitFusedDynamicUpdateSliceInPlaceForGpu(
-                  Cast<HloFusionInstruction>(fusion),
+                  *adaptor,
                   [&slice0](const HloInstruction*, const ShapeIndex&) {
                     return slice0;
                   },
-                  HloFusionAdaptor::ForInstruction(fusion)->GetRoots()),
+                  fusion),
               IsOkAndHolds(true));
 }
 
@@ -939,12 +1046,13 @@ ENTRY main {
   auto fusion = module->entry_computation()->root_instruction();
   BufferAllocation alloc(/*index=*/0, /*size=*/1024, /*color=*/0);
   BufferAllocation::Slice slice0(&alloc, 0, 10);
+  auto adaptor = HloFusionAdaptor::ForInstruction(fusion);
   EXPECT_THAT(CanEmitFusedDynamicUpdateSliceInPlaceForGpu(
-                  Cast<HloFusionInstruction>(fusion),
+                  *adaptor,
                   [&slice0](const HloInstruction*, const ShapeIndex&) {
                     return slice0;
                   },
-                  HloFusionAdaptor::ForInstruction(fusion)->GetRoots()),
+                  fusion),
               IsOkAndHolds(true));
 }
 
@@ -980,12 +1088,13 @@ ENTRY main {
   auto fusion = module->entry_computation()->root_instruction();
   BufferAllocation alloc(/*index=*/0, /*size=*/1024, /*color=*/0);
   BufferAllocation::Slice slice0(&alloc, 0, 10);
+  auto adaptor = HloFusionAdaptor::ForInstruction(fusion);
   EXPECT_THAT(CanEmitFusedDynamicUpdateSliceInPlaceForGpu(
-                  Cast<HloFusionInstruction>(fusion),
+                  *adaptor,
                   [&slice0](const HloInstruction*, const ShapeIndex&) {
                     return slice0;
                   },
-                  HloFusionAdaptor::ForInstruction(fusion)->GetRoots()),
+                  fusion),
               IsOkAndHolds(true));
 }
 
@@ -1023,13 +1132,59 @@ ENTRY main {
   auto fusion = module->entry_computation()->root_instruction();
   BufferAllocation alloc(/*index=*/0, /*size=*/1024, /*color=*/0);
   BufferAllocation::Slice slice0(&alloc, 0, 10);
+  auto adaptor = HloFusionAdaptor::ForInstruction(fusion);
   EXPECT_THAT(CanEmitFusedDynamicUpdateSliceInPlaceForGpu(
-                  Cast<HloFusionInstruction>(fusion),
+                  *adaptor,
                   [&slice0](const HloInstruction*, const ShapeIndex&) {
                     return slice0;
                   },
-                  HloFusionAdaptor::ForInstruction(fusion)->GetRoots()),
+                  fusion),
               IsOkAndHolds(true));
+}
+
+gpu::GpuBackendConfig CreateTestProto() {
+  gpu::GpuBackendConfig proto;
+  auto& knobs = *proto.mutable_cudnn_fmha_backend_config()
+                     ->mutable_algorithm()
+                     ->mutable_tuning_knobs();
+  for (int i = 0; i < 10; ++i) {
+    knobs[i] = i;
+  }
+  return proto;
+}
+
+constexpr absl::string_view kTestProtoFingerprint =
+    "Sj5CPCIECAAQACIECAEQASIECAIQAiIECAMQAyIECAQQBCIECAUQBSIECAYQBiIECAcQByIECA"
+    "gQCCIECAkQCQ";
+
+TEST_F(IrEmissionUtilsTest, ProtoFingerprintIsDeterministic) {
+  TF_ASSERT_OK_AND_ASSIGN(std::string fingerprint,
+                          GetProtoFingerprint(CreateTestProto()));
+  EXPECT_EQ(fingerprint, kTestProtoFingerprint);
+}
+
+TEST_F(IrEmissionUtilsTest, BackendConfigFingerprintIsDeterministic) {
+  BackendConfigWrapper wrapper(CreateTestProto());
+  TF_ASSERT_OK_AND_ASSIGN(
+      std::string fingerprint,
+      GetBackendConfigFingerprint<GpuBackendConfig>(wrapper));
+  EXPECT_EQ(fingerprint, kTestProtoFingerprint);
+}
+
+TEST_F(IrEmissionUtilsTest,
+       InstructionFingerprintWithBackendConfigIsDeterministic) {
+  TF_ASSERT_OK_AND_ASSIGN(std::unique_ptr<HloModule> module,
+                          ParseAndReturnVerifiedModule(R"(
+ENTRY e {
+  ROOT _ = u8[0] custom-call(), custom_call_target="", backend_config={"cudnn_fmha_backend_config": {"algorithm": {"tuning_knobs": {"0": "0", "1": "1", "2": "2", "3": "3", "4": "4", "5": "5", "6": "6", "7": "7", "8": "8", "9": "9"}}}}
+})"));
+  const HloInstruction& hlo = *module->entry_computation()->root_instruction();
+  TF_ASSERT_OK_AND_ASSIGN(std::string fingerprint,
+                          FingerprintWithBackendConfig<GpuBackendConfig>(hlo));
+  EXPECT_EQ(fingerprint,
+            absl::StrCat("u8[0]{0} custom-call(), custom_call_target=\"\", "
+                         "backend_config_fingerprint=",
+                         kTestProtoFingerprint));
 }
 
 }  // namespace gpu

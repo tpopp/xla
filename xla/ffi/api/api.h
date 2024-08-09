@@ -33,7 +33,6 @@ limitations under the License.
 #include <tuple>
 #include <type_traits>
 #include <utility>
-#include <variant>
 #include <vector>
 
 // This is a header-only base C++ library that defines templates for decoding
@@ -65,11 +64,11 @@ limitations under the License.
 #endif
 
 #if __has_attribute(always_inline)
-#define XLA_FFI_ATTRIBUTE_ALWAYS_INLINE inline __attribute__((always_inline))
+#define XLA_FFI_ATTRIBUTE_ALWAYS_INLINE __attribute__((always_inline))
 #elif defined(_MSC_VER)
 #define XLA_FFI_ATTRIBUTE_ALWAYS_INLINE __forceinline
 #else
-#define XLA_FFI_ATTRIBUTE_ALWAYS_INLINE inline
+#define XLA_FFI_ATTRIBUTE_ALWAYS_INLINE
 #endif
 
 #if __has_attribute(noinline)
@@ -155,14 +154,35 @@ inline std::ostream& operator<<(std::ostream& os, const XLA_FFI_AttrType type) {
   }
 }
 
+inline std::ostream& operator<<(std::ostream& os,
+                                const XLA_FFI_ExecutionStage stage) {
+  switch (stage) {
+    case XLA_FFI_ExecutionStage_INSTANTIATE:
+      return os << "instantiate";
+    case XLA_FFI_ExecutionStage_PREPARE:
+      return os << "prepare";
+    case XLA_FFI_ExecutionStage_INITIALIZE:
+      return os << "initialize";
+    case XLA_FFI_ExecutionStage_EXECUTE:
+      return os << "execute";
+  }
+}
+
 namespace xla::ffi {
 
+enum class ExecutionStage : uint8_t {
+  kInstantiate = XLA_FFI_ExecutionStage_INSTANTIATE,
+  kPrepare = XLA_FFI_ExecutionStage_PREPARE,
+  kInitialize = XLA_FFI_ExecutionStage_INITIALIZE,
+  kExecute = XLA_FFI_ExecutionStage_EXECUTE,
+};
+
 // Forward declare template defined below.
-template <typename... Ts>
+template <ExecutionStage stage, typename... Ts>
 class Binding;
 
 // Forward declare template defined below.
-template <typename Fn, typename... Ts>
+template <ExecutionStage stage, typename Fn, typename... Ts>
 class Handler;
 
 //===----------------------------------------------------------------------===//
@@ -171,17 +191,21 @@ class Handler;
 
 class Ffi {
  public:
-  // Creates and empty binding specification wich allows to define FFI handler
+  // Creates an empty binding specification which allows to define FFI handler
   // signature separately from implementation and rely on compile time type
   // checking to verify that signature matches the provided implementation.
-  static Binding<> Bind();
+  template <ExecutionStage stage = ExecutionStage::kExecute>
+  static Binding<stage> Bind();
+
+  // Creates an empty binding for the instantiate stage.
+  static Binding<ExecutionStage::kInstantiate> BindInstantiate();
 
   // Automatic FFI binding that does binding specification inference from the
   // `fn` type signature and binds `fn` to it. This enables a more concise FFI
   // handler registration with fully automatic type inference at the cost of
   // less readable error messages, template metaprogramming "magic" and a risk
   // to accidentally change handler type without noticing it.
-  template <typename Fn>
+  template <typename Fn, ExecutionStage stage = ExecutionStage::kExecute>
   static auto BindTo(Fn fn);
 
   virtual ~Ffi() = default;
@@ -199,8 +223,8 @@ class Ffi {
       const XLA_FFI_Api* api, std::string_view name, std::string_view platform,
       XLA_FFI_Handler* execute, XLA_FFI_Handler_Traits traits = 0) {
     return RegisterStaticHandler(
-        api, name, platform, XLA_FFI_Handler_Bundle{nullptr, nullptr, execute},
-        traits);
+        api, name, platform,
+        XLA_FFI_Handler_Bundle{nullptr, nullptr, nullptr, execute}, traits);
   }
 
  protected:
@@ -383,38 +407,38 @@ XLA_FFI_DataType NativeTypeToCApiDataType() {
 // Binding variadic template defines FFI handler signature
 //===----------------------------------------------------------------------===//
 
-template <typename... Ts>
+template <ExecutionStage stage, typename... Ts>
 class Binding {
  public:
   template <typename T>
-  Binding<Ts..., T> Arg() && {
+  Binding<stage, Ts..., T> Arg() && {
     return {std::move(*this)};
   }
 
   template <typename T>
-  Binding<Ts..., internal::RetTag<T>> Ret() && {
+  Binding<stage, Ts..., internal::RetTag<T>> Ret() && {
     return {std::move(*this)};
   }
 
-  Binding<Ts..., internal::RemainingArgsTag> RemainingArgs() && {
+  Binding<stage, Ts..., internal::RemainingArgsTag> RemainingArgs() && {
     static_assert(!internal::HasRemainingArgsTag<Ts...>::value,
                   "remaining arguments can be passed just once");
     return {std::move(*this)};
   }
 
-  Binding<Ts..., internal::RemainingRetsTag> RemainingResults() && {
+  Binding<stage, Ts..., internal::RemainingRetsTag> RemainingRets() && {
     static_assert(!internal::HasRemainingRetsTag<Ts...>::value,
                   "remaining results can be passed just once");
     return {std::move(*this)};
   }
 
   template <typename T>
-  Binding<Ts..., internal::CtxTag<T>> Ctx() && {
+  Binding<stage, Ts..., internal::CtxTag<T>> Ctx() && {
     return {std::move(*this)};
   }
 
   template <typename T>
-  Binding<Ts..., internal::AttrTag<T>> Attr(std::string attr) && {
+  Binding<stage, Ts..., internal::AttrTag<T>> Attr(std::string attr) && {
     static_assert(internal::NumTagged<internal::AttrsTag, Ts...>::value == 0,
                   "dictionary attributes can't be mixed with regular ones");
     attrs_.push_back(std::move(attr));
@@ -422,20 +446,20 @@ class Binding {
   }
 
   template <typename T = Dictionary>
-  Binding<Ts..., internal::AttrsTag<T>> Attrs() && {
+  Binding<stage, Ts..., internal::AttrsTag<T>> Attrs() && {
     static_assert(internal::NumTagged<internal::AttrTag, Ts...>::value == 0,
                   "dictionary attributes can't be mixed with regular ones");
     return {std::move(*this)};
   }
 
   template <typename Fn>
-  std::unique_ptr<Handler<Fn, Ts...>> To(Fn fn) {
-    return std::unique_ptr<Handler<Fn, Ts...>>(
-        new Handler<Fn, Ts...>(std::move(fn), std::move(attrs_)));
+  std::unique_ptr<Handler<stage, Fn, Ts...>> To(Fn fn) {
+    return std::unique_ptr<Handler<stage, Fn, Ts...>>(
+        new Handler<stage, Fn, Ts...>(std::move(fn), attrs_));
   }
 
  private:
-  template <typename...>
+  template <ExecutionStage, typename...>
   friend class Binding;
   friend class Ffi;
 
@@ -444,7 +468,7 @@ class Binding {
   }
 
   template <typename... TTs>
-  Binding(Binding<TTs...>&& other)  // NOLINT
+  Binding(Binding<stage, TTs...>&& other)  // NOLINT
       : attrs_(std::move(other.attrs_)) {}
 
   Binding(Binding&) = delete;
@@ -452,7 +476,14 @@ class Binding {
   std::vector<std::string> attrs_;  // names of bound attributes
 };
 
-inline Binding<> Ffi::Bind() { return xla::ffi::Binding<>(); }
+template <ExecutionStage stage>
+Binding<stage> Ffi::Bind() {
+  return xla::ffi::Binding<stage>();
+}
+
+inline Binding<ExecutionStage::kInstantiate> Ffi::BindInstantiate() {
+  return Bind<ExecutionStage::kInstantiate>();
+}
 
 //===----------------------------------------------------------------------===//
 // Template metaprogramming to automatially infer Binding from invocable object.
@@ -607,36 +638,37 @@ struct BindOne<Fn> {
   }
 };
 
-template <typename Fn>
+template <ExecutionStage stage, typename Fn>
 struct Bind;
 
 // Binding specialization for function pointers (and captureless lambdas that
 // can be casted to function pointers).
-template <typename ResultType, typename... Params>
-struct Bind<ResultType (*)(Params...)> {
+template <ExecutionStage stage, typename ResultType, typename... Params>
+struct Bind<stage, ResultType (*)(Params...)> {
   using Fn = ResultType (*)(Params...);
 
   static auto To(Fn fn) {
-    return BindOne<Fn, Params...>::To(std::move(fn), Ffi::Bind());
+    return BindOne<Fn, Params...>::To(std::move(fn), Ffi::Bind<stage>());
   }
 };
 
 // Binding specialization for callables (lambdas with captures).
-template <typename ResultType, typename Fn, typename... Params>
-struct Bind<ResultType (Fn::*)(Params...) const> {
+template <ExecutionStage stage, typename ResultType, typename Fn,
+          typename... Params>
+struct Bind<stage, ResultType (Fn::*)(Params...) const> {
   static auto To(Fn fn) {
-    return BindOne<Fn, Params...>::To(std::move(fn), Ffi::Bind());
+    return BindOne<Fn, Params...>::To(std::move(fn), Ffi::Bind<stage>());
   }
 };
 
 }  // namespace internal
 
-template <typename Fn>
+template <typename Fn, ExecutionStage stage>
 auto Ffi::BindTo(Fn fn) {
   if constexpr (std::is_pointer_v<Fn>) {
-    return internal::Bind<Fn>::To(fn);
+    return internal::Bind<stage, Fn>::To(fn);
   } else {
-    return internal::Bind<decltype(&Fn::operator())>::To(std::move(fn));
+    return internal::Bind<stage, decltype(&Fn::operator())>::To(std::move(fn));
   }
 }
 
@@ -676,7 +708,7 @@ struct AttrBinding<Attr<T, attr_name>> {
   static constexpr std::string_view name() { return attr_name; }
 };
 
-// Default attributes binding for `Dictonary` parameters.
+// Default attributes binding for `Dictionary` parameters.
 template <>
 struct AttrsBinding<Dictionary> {
   using Attrs = Dictionary;
@@ -750,8 +782,6 @@ struct AttrDecoding;
 //                                      XLA_FFI_ExecutionContext* ctx);
 //   }
 //
-// Second template parameter is used to conditionally enable/disable context
-// decoding specialization for a given type via SFINAE.
 template <typename T>
 struct CtxDecoding;
 
@@ -764,12 +794,17 @@ struct CtxDecoding;
 //
 // Example: encoding `absl::Status` result
 //
-//   template<>
+//   template<ExecutionStage stage>
 //   struct ResultEncoding<absl::Status> {
-//     XLA_FFI_Error* Encode(const XLA_FFI_Api* api, absl::Status status) {...}
+//     XLA_FFI_Error* Encode(const XLA_FFI_Api* api,
+//                           XLA_FFI_ExecutionContext* ctx,
+//.                          absl::Status status) {...}
 //   }
 //
-template <typename T>
+// Result encoding is execution stage specific, for example at instantiation
+// stage FFI handler can return an FFI handler state, while at execution stage
+// we only support returning a status-like type.
+template <ExecutionStage stage, typename T>
 struct ResultEncoding;
 
 //===----------------------------------------------------------------------===//
@@ -921,73 +956,14 @@ struct internal::Decode<internal::CtxTag<T>> {
 };
 
 //===----------------------------------------------------------------------===//
-// Expected
-//===----------------------------------------------------------------------===//
-
-// Forward declare.
-template <typename E>
-class Unexpected;
-
-// TODO(slebedev): Replace with `std::expected` when C++23 is available.
-template <typename T, typename E>
-class Expected {
- public:
-  constexpr Expected(T value) : data_(std::move(value)) {}  // NOLINT
-  constexpr Expected(Unexpected<E> u);                      // NOLINT
-
-  constexpr operator bool() const {  // NOLINT
-    return has_value();
-  }
-
-  constexpr T& operator*() & { return value(); }
-  constexpr const T& operator*() const& { return value(); }
-  constexpr T&& operator*() && { return std::move(value()); }
-  constexpr const T& operator*() const&& { return std::move(value()); }
-
-  constexpr T* operator->() { return &value(); }
-  constexpr const T* operator->() const { return &value(); }
-
-  constexpr bool has_value() const { return std::holds_alternative<T>(data_); }
-
-  constexpr T& value() & { return std::get<T>(data_); }
-  constexpr const T& value() const& { return std::get<T>(data_); }
-  constexpr T&& value() && { return std::get<T>(std::move(data_)); }
-  constexpr const T& value() const&& { return std::get<T>(std::move(data_)); }
-
-  constexpr E& error() & { return std::get<E>(data_); }
-  constexpr const E& error() const& { return std::get<E>(data_); }
-  constexpr E&& error() && { return std::get<E>(std::move(data_)); }
-  constexpr const E&& error() const&& { return std::get<E>(std::move(data_)); }
-
- private:
-  std::variant<T, E> data_;
-};
-
-template <typename E>
-class Unexpected {
- public:
-  explicit constexpr Unexpected(E error) : error_(std::move(error)) {}
-
- private:
-  template <typename, typename>
-  friend class Expected;
-
-  E error_;
-};
-
-Unexpected(const char*) -> Unexpected<std::string>;
-
-template <typename T, typename E>
-constexpr Expected<T, E>::Expected(Unexpected<E> u)
-    : data_(std::move(u.error_)) {}
-
-//===----------------------------------------------------------------------===//
 // Type-safe wrapper for accessing a variable number of arguments.
 //===----------------------------------------------------------------------===//
 
-class RemainingArgs {
+namespace internal {
+
+class RemainingArgsBase {
  public:
-  RemainingArgs(const XLA_FFI_Args* args, size_t offset)
+  RemainingArgsBase(const XLA_FFI_Args* args, size_t offset)
       : args_(args), offset_(offset) {
     assert(offset <= args_->size && "illegal remaining args offset");
   }
@@ -995,43 +971,26 @@ class RemainingArgs {
   size_t size() const { return args_->size - offset_; }
   bool empty() const { return size() == 0; }
 
-  template <typename T>
-  Expected<T, std::string> get(size_t index) const {
-    size_t idx = offset_ + index;
-    if (idx >= args_->size) {
-      return Unexpected("Index out of range.");
-    }
-
-    DiagnosticEngine diagnostic;
-    auto value_opt =
-        ArgDecoding<T>::Decode(args_->types[idx], args_->args[idx], diagnostic);
-    if (!value_opt.has_value()) {
-      return Unexpected(diagnostic.Result());
-    }
-    return *value_opt;
-  }
+ protected:
+  const XLA_FFI_Args* args() const { return args_; }
+  size_t offset() const { return offset_; }
 
  private:
-  const XLA_FFI_Args* args_;  // not owned
+  const XLA_FFI_Args* args_;
   size_t offset_;
 };
 
-template <>
-struct internal::Decode<internal::RemainingArgsTag> {
-  static std::optional<RemainingArgs> call(DecodingOffsets& offsets,
-                                           DecodingContext& ctx,
-                                           DiagnosticEngine& diagnostic) {
-    return RemainingArgs(&ctx.call_frame->args, offsets.args);
-  }
-};
+}  // namespace internal
 
 //===----------------------------------------------------------------------===//
 // Type-safe wrapper for accessing a variable number of results.
 //===----------------------------------------------------------------------===//
 
-class RemainingResults {
+namespace internal {
+
+class RemainingRetsBase {
  public:
-  RemainingResults(const XLA_FFI_Rets* rets, size_t offset)
+  RemainingRetsBase(const XLA_FFI_Rets* rets, size_t offset)
       : rets_(rets), offset_(offset) {
     assert(offset <= rets_->size && "illegal remaining rets offset");
   }
@@ -1039,43 +998,30 @@ class RemainingResults {
   size_t size() const { return rets_->size - offset_; }
   bool empty() const { return size() == 0; }
 
-  template <typename T>
-  Expected<T, std::string> get(size_t index) const {
-    size_t idx = offset_ + index;
-    if (idx >= rets_->size) {
-      return Unexpected("Index out of range.");
-    }
-
-    DiagnosticEngine diagnostic;
-    auto value_opt =
-        RetDecoding<T>::Decode(rets_->types[idx], rets_->rets[idx], diagnostic);
-    if (!value_opt.has_value()) {
-      return Unexpected(diagnostic.Result());
-    }
-    return **value_opt;
-  }
+ protected:
+  const XLA_FFI_Rets* rets() const { return rets_; }
+  size_t offset() const { return offset_; }
 
  private:
   const XLA_FFI_Rets* rets_;  // not owned
   size_t offset_;
 };
 
-template <>
-struct internal::Decode<internal::RemainingRetsTag> {
-  static std::optional<RemainingResults> call(DecodingOffsets& offsets,
-                                              DecodingContext& ctx,
-                                              DiagnosticEngine& diagnostic) {
-    return RemainingResults(&ctx.call_frame->rets, offsets.rets);
-  }
-};
+}  // namespace internal
 
 //===----------------------------------------------------------------------===//
 // Type-safe wrapper for accessing dictionary attributes.
 //===----------------------------------------------------------------------===//
 
-class Dictionary {
+namespace internal {
+
+// Forward declare dictionary attribute decoding defined below.
+template <typename T, typename... Ts>
+struct DecodeDictionaryAttr;
+
+class DictionaryBase {
  public:
-  explicit Dictionary(const XLA_FFI_Attrs* attrs) : attrs_(attrs) {}
+  explicit DictionaryBase(const XLA_FFI_Attrs* attrs) : attrs_(attrs) {}
 
   size_t size() const { return attrs_->size; }
 
@@ -1083,21 +1029,15 @@ class Dictionary {
     return Find(name) < attrs_->size;
   }
 
-  template <typename T>
-  Expected<T, std::string> get(std::string_view name) const {
-    DiagnosticEngine diagnostic;
-    auto value_opt = get<T>(name, diagnostic);
-    if (!value_opt.has_value()) {
-      return Unexpected(diagnostic.Result());
-    }
-    return *value_opt;
-  }
+ protected:
+  template <typename T, typename... Ts>
+  friend struct DecodeDictionaryAttr;
 
   template <typename T>
   std::optional<T> get(std::string_view name,
                        DiagnosticEngine& diagnostic) const {
     size_t idx = Find(name);
-    if (idx >= attrs_->size) {
+    if (XLA_FFI_PREDICT_FALSE(idx >= attrs_->size)) {
       return diagnostic.Emit("Unexpected attribute: ") << name;
     }
 
@@ -1124,15 +1064,11 @@ class Dictionary {
   const XLA_FFI_Attrs* attrs_;
 };
 
-// Decode `AttrsTag` into a generic `Dictionary` attribute.
-template <>
-struct internal::Decode<internal::AttrsTag<Dictionary>> {
-  static std::optional<Dictionary> call(DecodingOffsets& offsets,
-                                        DecodingContext& ctx,
-                                        DiagnosticEngine& diagnostic) {
-    return Dictionary(&ctx.call_frame->attrs);
-  }
-};
+}  // namespace internal
+
+//===----------------------------------------------------------------------===//
+// Decoding for aggregate attributes (decoding dictionaries into structs).
+//===----------------------------------------------------------------------===//
 
 // Decode `AttrsTag` into a type `T` relying on struct decoding defined below.
 template <typename T>
@@ -1149,6 +1085,13 @@ struct internal::Decode<internal::AttrsTag<T>> {
 // Template metaprogramming for decoding handler signature
 //===----------------------------------------------------------------------===//
 
+// Forward declare classes for decoding variadic number of arguments and
+// results. They are defined in `ffi.h` headers (internal and external), to be
+// able to use slightly different implementations for internal and external
+// FFI (`absl::StatusOr` vs `ffi::ErrorOr`).
+class RemainingArgs;
+class RemainingRets;
+
 namespace internal {
 // A helper struct to extract the type of the handler argument.
 template <typename T>
@@ -1163,7 +1106,7 @@ struct FnArgType<internal::RemainingArgsTag> {
 
 template <>
 struct FnArgType<internal::RemainingRetsTag> {
-  using Type = RemainingResults;
+  using Type = RemainingRets;
 };
 
 // Extracts the underlying type from the returned result type tag.
@@ -1226,7 +1169,7 @@ struct NumArgs<T, Ts...> {
 // Handler decodes FFI call frame and invokes `Fn` with decoded arguments
 //===----------------------------------------------------------------------===//
 
-template <typename Fn, typename... Ts>
+template <ExecutionStage stage, typename Fn, typename... Ts>
 class Handler : public Ffi {
   static constexpr int64_t kSize = sizeof...(Ts);
 
@@ -1255,14 +1198,36 @@ class Handler : public Ffi {
  public:
   XLA_FFI_Error* Call(const XLA_FFI_CallFrame* call_frame) const override {
     // Sanity checking call frame struct size.
-    if (auto* err = CheckStructSize(call_frame->api, "XLA_FFI_CallFrame",
-                                    XLA_FFI_CallFrame_STRUCT_SIZE,
-                                    call_frame->struct_size))
+    if (XLA_FFI_Error* err = CheckStructSize(
+            call_frame->api, "XLA_FFI_CallFrame", XLA_FFI_CallFrame_STRUCT_SIZE,
+            call_frame->struct_size)) {
       return err;
+    }
+
+    // Check the API versions.
+    const XLA_FFI_Api_Version& api_version = call_frame->api->api_version;
+    if (api_version.major_version != XLA_FFI_API_MAJOR ||
+        api_version.minor_version != XLA_FFI_API_MINOR) {
+      return InvalidArgument(
+          call_frame->api,
+          StrCat("FFI handler's API version (", XLA_FFI_API_MAJOR, ".",
+                 XLA_FFI_API_MINOR, ") does not match the framework's API ",
+                 "version (", api_version.major_version, ".",
+                 api_version.minor_version, ")"));
+    }
+
+    // Check that handler is called during correct execution stage.
+    if (XLA_FFI_PREDICT_FALSE(call_frame->stage !=
+                              static_cast<XLA_FFI_ExecutionStage>(stage))) {
+      return InvalidArgument(call_frame->api,
+                             StrCat("Wrong execution stage: expected `",
+                                    static_cast<XLA_FFI_ExecutionStage>(stage),
+                                    "` but got `", call_frame->stage, "`"));
+    }
 
     // Check that the number of passed arguments matches the signature. Each
     // individual argument decoding will check the actual type.
-    if (internal::HasRemainingArgsTag<Ts...>::value) {
+    if constexpr (internal::HasRemainingArgsTag<Ts...>::value) {
       if (XLA_FFI_PREDICT_FALSE(call_frame->args.size < kNumArgs)) {
         return InvalidArgument(
             call_frame->api,
@@ -1280,7 +1245,7 @@ class Handler : public Ffi {
 
     // Check that the number of results matches the signature. Each individual
     // result decoding will check the actual type.
-    if (internal::HasRemainingRetsTag<Ts...>::value) {
+    if constexpr (internal::HasRemainingRetsTag<Ts...>::value) {
       if (XLA_FFI_PREDICT_FALSE(call_frame->rets.size < kNumRets)) {
         return InvalidArgument(
             call_frame->api,
@@ -1331,33 +1296,25 @@ class Handler : public Ffi {
     std::tuple<std::optional<FnArgType<Ts>>...> args = {
         internal::Decode<Ts>::call(offsets, ctx, diagnostic)...};
 
-    bool all_decoded = (std::get<Is>(args).has_value() && ...);
-    if (XLA_FFI_PREDICT_FALSE(!all_decoded)) {
-      return FailedDecodeError(call_frame, {std::get<Is>(args).has_value()...},
-                               diagnostic);
+    if constexpr (sizeof...(Ts) > 0) {
+      // We intentionally use `&`, as it generates fewer branch instructions.
+      bool all_decoded = (std::get<Is>(args).has_value() & ...);
+      if (XLA_FFI_PREDICT_FALSE(!all_decoded)) {
+        return FailedDecodeError(
+            call_frame, {std::get<Is>(args).has_value()...}, diagnostic);
+      }
     }
 
-    auto result = fn_(std::move(*std::get<Is>(args))...);
-    return ResultEncoding<ResultType>::Encode(call_frame->api,
-                                              std::move(result));
+    ResultType result = fn_(std::move(*std::get<Is>(args))...);
+    return ResultEncoding<stage, ResultType>::Encode(
+        call_frame->api, call_frame->ctx, std::move(result));
   }
 
   XLA_FFI_Error* FailedDecodeError(const XLA_FFI_CallFrame* call_frame,
                                    std::array<bool, kSize> decoded,
                                    const DiagnosticEngine& diagnostic) const {
-    auto stage = [&] {
-      switch (call_frame->stage) {
-        case XLA_FFI_ExecutionStage_PREPARE:
-          return "prepare";
-        case XLA_FFI_ExecutionStage_INITIALIZE:
-          return "initialize";
-        case XLA_FFI_ExecutionStage_EXECUTE:
-          return "execute";
-      }
-    };
-
     std::stringstream message;
-    message << "[" << stage() << "] "
+    message << "[" << call_frame->stage << "] "
             << "Failed to decode all FFI handler operands (bad operands at: ";
     for (size_t cnt = 0, idx = 0; idx < kSize; ++idx) {
       if (!decoded[idx]) {
@@ -1372,7 +1329,7 @@ class Handler : public Ffi {
     return InvalidArgument(call_frame->api, message.str());
   }
 
-  template <typename...>
+  template <ExecutionStage, typename...>
   friend class Binding;
 
   Handler(Fn fn, std::vector<std::string> attrs)
@@ -1464,21 +1421,6 @@ struct AttrDecoding<std::string_view> {
   }
 };
 
-template <>
-struct AttrDecoding<Dictionary> {
-  using Type = Dictionary;
-  static std::optional<Dictionary> Decode(XLA_FFI_AttrType type, void* attr,
-                                          DiagnosticEngine& diagnostic) {
-    if (XLA_FFI_PREDICT_FALSE(type != XLA_FFI_AttrType_DICTIONARY)) {
-      return diagnostic.Emit("Wrong attribute type: expected ")
-             << XLA_FFI_AttrType_DICTIONARY << " but got " << type;
-    }
-
-    auto* attrs = reinterpret_cast<XLA_FFI_Attrs*>(attr);
-    return Dictionary(attrs);
-  }
-};
-
 //===----------------------------------------------------------------------===//
 // Automatic dictionary attributes to structs decoding.
 //===----------------------------------------------------------------------===//
@@ -1523,7 +1465,7 @@ struct DecodeDictionaryAttr {
     //
     // Consider using `static auto decoder = ...` below, and compute mapping in
     // constructor. Add benchmarks first to know what to improve!
-    Dictionary dict(attrs);
+    internal::DictionaryBase dict(attrs);
 
     std::tuple<std::optional<Ts>...> members = {
         dict.get<Ts>(names[Is], diagnostic)...};
@@ -1586,7 +1528,7 @@ auto DictionaryDecoder(Members... m) {
 // type to decode the attribute as a scalar value and cast it to the enum type.
 #define XLA_FFI_REGISTER_ENUM_ATTR_DECODING(T)                                \
   template <>                                                                 \
-  struct ::xla::ffi::AttrDecoding<T> {                                        \
+  struct xla::ffi::AttrDecoding<T> {                                          \
     using Type = T;                                                           \
     using U = std::underlying_type_t<Type>;                                   \
     static_assert(std::is_enum<Type>::value, "Expected enum class");          \

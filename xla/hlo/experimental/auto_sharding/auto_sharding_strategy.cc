@@ -111,7 +111,7 @@ ComputeSliceShardingAndCommunicationCostFromOperand(
   // dimensions that shard sliced tensor dimensions.
   const HloSharding& result =
       Tile(new_shape, tensor_dims, mesh_dims, device_mesh);
-  double num_bytes_to_transfer = GetBytes(new_shape);
+  double num_bytes_to_transfer = ByteSizeOfShape(new_shape);
   double communication_cost = 0;
   for (size_t i = 0; i < mesh_dims_for_communication.size(); ++i) {
     int64_t mesh_dim = mesh_dims_for_communication[i];
@@ -142,15 +142,14 @@ BuildStrategyAndCost(
   // is useful when the operand is forced to use a user sharding, and the op
   // doesn't need to strictly follow it. We restore the trimmed strategies in
   // this situation.
-  StableHashMap<int64_t, std::vector<ShardingStrategy>> pretrimmed_strategy_map;
+  StableMap<int64_t, std::vector<ShardingStrategy>> pretrimmed_strategy_map;
   StrategyGroups strategy_groups;
   AssociativeDotPairs associative_dot_pairs;
 
   const std::vector<HloInstruction*>& instructions = sequence.instructions();
 
   // Add penalty for replicated tensors
-  double replicated_penalty = std::round(cluster_env.AllReduceCost(1, 0) +
-                                         cluster_env.AllReduceCost(1, 1));
+  double replicated_penalty = cluster_env.GetDefaultReplicatedPenalty();
 
   int64_t max_depth = -1;
   for (auto iter : depth_map) {
@@ -216,8 +215,7 @@ BuildStrategyAndCost(
                 MaybeFollowInsStrategyGroup(
                     while_input_tuple_strategy_group->childs[i].get(),
                     ins->shape().tuple_shapes().at(i), instruction_id,
-                    /* have_memory_cost= */ true, strategy_groups, cluster_env,
-                    pretrimmed_strategy_map);
+                    strategy_groups, cluster_env, pretrimmed_strategy_map);
             child_strategies->tuple_element_idx = i;
             strategy_group->childs.push_back(std::move(child_strategies));
           }
@@ -264,7 +262,8 @@ BuildStrategyAndCost(
               src_strategy_group->strategies[sid].output_sharding;
           std::string name = ToStringSimple(output_spec);
           double compute_cost = 0, communication_cost = 0;
-          double memory_cost = GetBytes(ins->shape()) / output_spec.NumTiles();
+          double memory_cost =
+              ByteSizeOfShapeWithSharding(ins->shape(), output_spec);
 
           std::vector<std::optional<HloSharding>> input_shardings_optional(
               {output_spec, std::nullopt, std::nullopt});
@@ -379,7 +378,7 @@ BuildStrategyAndCost(
 
             double compute_cost = 0, communication_cost = 0;
             double memory_cost =
-                GetBytes(gather_shape) / output_spec.NumTiles();
+                ByteSizeOfShapeWithSharding(gather_shape, output_spec);
             std::vector<std::optional<HloSharding>> input_shardings_optional(
                 {data_spec, indices_spec});
             std::pair<ReshardingCosts, ReshardingCosts> resharding_costs =
@@ -445,7 +444,8 @@ BuildStrategyAndCost(
 
           std::string name = ToStringSimple(output_spec);
           double compute_cost = 0, communication_cost = 0;
-          double memory_cost = GetBytes(ins->shape()) / output_spec.NumTiles();
+          double memory_cost =
+              ByteSizeOfShapeWithSharding(ins->shape(), output_spec);
           std::vector<double> communication_resharding_costs =
               CommunicationReshardingCostVector(src_strategy_group,
                                                 operand->shape(), input_spec,
@@ -586,7 +586,8 @@ BuildStrategyAndCost(
           }
 
           std::string name = ToStringSimple(*output_spec);
-          double memory_cost = GetBytes(ins->shape()) / output_spec->NumTiles();
+          double memory_cost =
+              ByteSizeOfShapeWithSharding(ins->shape(), output_spec);
           std::pair<ReshardingCosts, ReshardingCosts> resharding_costs =
               GenerateReshardingCostsAndMissingShardingsForAllOperands(
                   ins, *output_spec, strategy_map, cluster_env, call_graph,
@@ -613,9 +614,8 @@ BuildStrategyAndCost(
       case HloOpcode::kOptimizationBarrier: {
         auto operand_strategies = strategy_map.at(ins->operand(0)).get();
         strategy_group = MaybeFollowInsStrategyGroup(
-            operand_strategies, ins->shape(), instruction_id,
-            /* have_memory_cost */ true, strategy_groups, cluster_env,
-            pretrimmed_strategy_map);
+            operand_strategies, ins->shape(), instruction_id, strategy_groups,
+            cluster_env, pretrimmed_strategy_map);
         break;
       }
       case HloOpcode::kBitcast: {
@@ -738,16 +738,13 @@ BuildStrategyAndCost(
         break;
       }
       case HloOpcode::kIota: {
-        // For an unknown reason, we do not generate partially replicated
-        // strategies for iota ops. This can be changed if we find that our
-        // search isn't exhaustive enough for certain ops.
         strategy_group =
             CreateAllStrategiesGroup(
                 ins, ins->shape(), instruction_id, strategy_groups, cluster_env,
                 strategy_map, option, replicated_penalty, batch_dim_map,
                 call_graph, only_allow_divisible,
                 /* create_replicated_strategies */ true,
-                /* create_partially_replicated_strategies */ false)
+                /* create_partially_replicated_strategies */ true)
                 .value();
         break;
       }
@@ -760,8 +757,7 @@ BuildStrategyAndCost(
               strategy_map.at(operand).get();
           auto child_strategies = MaybeFollowInsStrategyGroup(
               src_strategy_group, operand->shape(), instruction_id,
-              /* have_memory_cost= */ true, strategy_groups, cluster_env,
-              pretrimmed_strategy_map);
+              strategy_groups, cluster_env, pretrimmed_strategy_map);
           child_strategies->tuple_element_idx = i;
           strategy_group->childs.push_back(std::move(child_strategies));
         }
@@ -784,8 +780,7 @@ BuildStrategyAndCost(
         CHECK(src_strategy_group->is_tuple);
         strategy_group = MaybeFollowInsStrategyGroup(
             src_strategy_group->childs[ins->tuple_index()].get(), ins->shape(),
-            instruction_id,
-            /* have_memory_cost= */ true, strategy_groups, cluster_env,
+            instruction_id, strategy_groups, cluster_env,
             pretrimmed_strategy_map);
         break;
       }
@@ -829,16 +824,7 @@ BuildStrategyAndCost(
               }
             };
 
-        if (IsCustomCallMarker(ins)) {
-          const HloInstruction* operand = ins->operand(0);
-          const StrategyGroup* src_strategy_group =
-              strategy_map.at(operand).get();
-          CHECK(src_strategy_group->is_tuple);
-          strategy_group = MaybeFollowInsStrategyGroup(
-              src_strategy_group, ins->shape(), instruction_id,
-              /* have_memory_cost= */ true, strategy_groups, cluster_env,
-              pretrimmed_strategy_map);
-        } else if (IsSPMDFullToShardShapeCustomCall(ins)) {
+        if (IsSPMDFullToShardShapeCustomCall(ins)) {
           return absl::InternalError(
               "An SPMDFullToShardShape call found outside a manually "
               "partitioned sub-graph.");
@@ -866,8 +852,7 @@ BuildStrategyAndCost(
                 strategy_map.at(operand).get();
             strategy_group = MaybeFollowInsStrategyGroup(
                 src_strategy_group, ins->shape(), instruction_id,
-                /* have_memory_cost= */ true, strategy_groups, cluster_env,
-                pretrimmed_strategy_map);
+                strategy_groups, cluster_env, pretrimmed_strategy_map);
           }
         } else if (ins->has_sharding()) {
           generate_non_following_strategies(false);
@@ -886,8 +871,7 @@ BuildStrategyAndCost(
           auto child_strategies = MaybeFollowInsStrategyGroup(
               src_strategy_group->childs[i].get(),
               ins->shape().tuple_shapes().at(i), instruction_id,
-              /* have_memory_cost= */ true, strategy_groups, cluster_env,
-              pretrimmed_strategy_map);
+              strategy_groups, cluster_env, pretrimmed_strategy_map);
           child_strategies->tuple_element_idx = i;
           strategy_group->childs.push_back(std::move(child_strategies));
         }
@@ -1037,24 +1021,6 @@ BuildStrategyAndCost(
     CheckMemoryCosts(strategy_group.get(), ins->shape());
     strategy_map[ins] = std::move(strategy_group);
   }  // end of for loop
-
-  // If gradient accumulation is used, adjust the cost of all-reduce for
-  // gradient synchronization.
-  if (option.grad_acc_num_micro_batches > 1) {
-    // find gradient-computation instructions
-    std::vector<const HloInstruction*> grad_insts =
-        GetGradientComputationInstructions(instructions);
-    for (const HloInstruction* inst : grad_insts) {
-      StrategyGroup* stra_vector = strategy_map[inst].get();
-      CHECK(!stra_vector->is_tuple);
-
-      for (auto& stra : stra_vector->strategies) {
-        if (absl::StrContains(stra.name, "allreduce")) {
-          stra.communication_cost /= option.grad_acc_num_micro_batches;
-        }
-      }
-    }
-  }
 
   return std::make_tuple(std::move(strategy_map), std::move(strategy_groups),
                          std::move(associative_dot_pairs));

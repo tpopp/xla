@@ -23,14 +23,10 @@ limitations under the License.
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
-#include "absl/log/check.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
-#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
-#include "llvm/Support/Casting.h"
-#include "mlir/IR/AffineExpr.h"  // from @llvm-project
-#include "mlir/IR/AffineMap.h"  // from @llvm-project
+#include "xla/service/gpu/model/affine_map_evaluator.h"
 #include "xla/service/gpu/model/indexing_analysis.h"
 #include "xla/service/gpu/model/indexing_map.h"
 #include "xla/service/gpu/model/indexing_test_utils.h"
@@ -41,14 +37,13 @@ namespace gpu {
 namespace {
 
 using ::llvm::SmallVector;
-using ::mlir::AffineExpr;
-using ::mlir::AffineMap;
 using ::testing::ElementsAre;
 using ::testing::ExplainMatchResult;
 using ::testing::IsEmpty;
 using ::testing::Optional;
 using ::testing::SizeIs;
 
+using Constraint = ConstraintExpression::Constraint;
 using ConjointConstraints = ConstraintExpression::ConjointConstraints;
 
 MATCHER_P(MatchSymbolicTileString, symbolic_tile_string, "") {
@@ -61,29 +56,6 @@ MATCHER_P(MatchConstraintExpressionString, constraint_expression_string, "") {
   return ExplainMatchResult(
       true, ApproximateMatch(constraint_expression_string, arg.ToString()),
       result_listener);
-}
-
-std::vector<int64_t> EvaluateMapAt(AffineMap affine_map,
-                                   absl::Span<int64_t const> parameters) {
-  CHECK_EQ(affine_map.getNumSymbols(), parameters.size());
-  CHECK_EQ(affine_map.getNumDims(), 0);
-
-  SmallVector<AffineExpr> symbol_replacements = llvm::to_vector(
-      llvm::map_range(parameters, [affine_map](const int64_t v) -> AffineExpr {
-        return mlir::getAffineConstantExpr(v, affine_map.getContext());
-      }));
-
-  AffineMap simplified_affine_map =
-      mlir::simplifyAffineMap(affine_map.replaceDimsAndSymbols(
-          /*dimReplacements=*/{}, symbol_replacements, /*numResultDims=*/0,
-          /*numResultSyms=*/0));
-
-  SmallVector<int64_t> results = llvm::to_vector(llvm::map_range(
-      simplified_affine_map.getResults(), [](AffineExpr result) -> int64_t {
-        return llvm::cast<mlir::AffineConstantExpr>(result).getValue();
-      }));
-
-  return std::vector<int64_t>(results.begin(), results.end());
 }
 
 using SymbolicTileTest = IndexingTestBase;
@@ -104,9 +76,9 @@ TEST_F(SymbolicTileTest, CanPropagateTileFromDotOutputToInputs) {
       SymbolicTile::FromIndexingMap(*input_indexing.indexing_maps[0].begin()),
       Optional(MatchSymbolicTileString(R"(
       Symbolic tile with
-          offset_map: ()[s0, s1, s2] -> (0, 0, 0)
-          size_map: ()[s0, s1, s2] -> (s0, s1, 19)
-          stride_map: ()[s0, s1, s2] -> (1, 1, 1)
+          offset_map: (d0, d1, d2) -> (0, 0, 0)
+          size_map: (d0, d1, d2) -> (d0, d1, 19)
+          stride_map: (d0, d1, d2) -> (1, 1, 1)
       )")));
 }
 
@@ -123,9 +95,9 @@ TEST_F(SymbolicTileTest, CanPropagateTileThroughTrivialReshape) {
       SymbolicTile::FromIndexingMap(*input_indexing.indexing_maps[0].begin()),
       Optional(MatchSymbolicTileString(R"(
       Symbolic tile with
-        offset_map: ()[s0, s1, s2, s3] -> (0, 0, 0)
-        size_map: ()[s0, s1, s2, s3] -> (s1, s2, s3)
-        stride_map: ()[s0, s1, s2, s3] -> (1, 1, 1)
+        offset_map: (d0, d1, d2, d3) -> (0, 0, 0)
+        size_map: (d0, d1, d2, d3) -> (d1, d2, d3)
+        stride_map: (d0, d1, d2, d3) -> (1, 1, 1)
       )")));
 }
 
@@ -145,18 +117,16 @@ TEST_F(SymbolicTileTest,
       SymbolicTile::FromIndexingMap(*input_indexing.indexing_maps[0].begin()),
       Optional(MatchSymbolicTileString(R"(
       Symbolic tile with
-        offset_map: ()[s0, s1] -> (0, 0, 0, 0)
-        size_map: ()[s0, s1] -> (1, (s0 + 5) floordiv 6, s0 - ((s0 - 1) floordiv 6) * 6, s1)
-        stride_map: ()[s0, s1] -> (0, 1, 1, 1)
+        offset_map: (d0, d1) -> (0, 0, 0, 0)
+        size_map: (d0, d1) -> (1, (d0 + 5) floordiv 6, d0 - ((d0 - 1) floordiv 6) * 6, d1)
+        stride_map: (d0, d1) -> (0, 1, 1, 1)
         constraints:
-          6 mod s0 in [0, 1) || s0 mod 6 in [0, 1)
+          6 mod d0 in [0, 0] || d0 mod 6 in [0, 0]
       )")));
 }
 
 TEST_F(SymbolicTileTest,
        CanPropagateTileThroughNonTrivialSplitReshapeFromOutputToInput) {
-  // TODO(b/334043867): we need disjunctions here to derive the proper
-  // constraints for the tile sizes.
   auto input_indexing = GetOutputToInputIndexing(ParseAndGetRoot(R"(
     HloModule m
     ENTRY e {
@@ -174,35 +144,41 @@ TEST_F(SymbolicTileTest,
   // resulting expression is very ugly.
   EXPECT_THAT(symbolic_tile, Optional(MatchSymbolicTileString(R"(
       Symbolic tile with
-        offset_map: ()[s0, s1, s2, s3] -> (0, 0)
-        size_map: ()[s0, s1, s2, s3] -> ((s0 * s1) * s2, s3)
-        stride_map: ()[s0, s1, s2, s3] ->
-          (((-s2 + 7) floordiv 6) * (((-s1 + 9) floordiv 8) *
-          ((-((-s0 + 5) floordiv 4) + 1) * 48) +
-          (-((-s1 + 9) floordiv 8) + 1) * 6) + -((-s2 + 7) floordiv 6) + 1, 1)
+        offset_map: (d0, d1, d2, d3) -> (0, 0)
+        size_map: (d0, d1, d2, d3) -> ((d0 * d1) * d2, d3)
+        stride_map: (d0, d1, d2, d3) ->
+          (((-d2 + 7) floordiv 6) * (((-d1 + 9) floordiv 8) *
+          ((-((-d0 + 5) floordiv 4) + 1) * 48) +
+          (-((-d1 + 9) floordiv 8) + 1) * 6) + -((-d2 + 7) floordiv 6) + 1, 1)
+        constraints: d0 in [1, 1] && d1 in [1, 1] ||
+                     d0 in [1, 1] && d2 in [1, 1] ||
+                     d0 in [1, 1] && d2 in [6, 6] ||
+                     d1 in [1, 1] && d2 in [1, 1] ||
+                     d1 in [8, 8] && d2 in [1, 1] ||
+                     d1 in [8, 8] && d2 in [6, 6]
       )")));
 
   // Capturing elements along dimensions 0, 1, and 2 makes the stride equal to
   // 1.
-  EXPECT_THAT(EvaluateMapAt(symbolic_tile->stride_map(), {4, 8, 6, 4}),
+  EXPECT_THAT(EvaluateAffineMap(symbolic_tile->stride_map(), {4, 8, 6, 4}),
               ElementsAre(1, 1));
   // Capturing elements along dimension 2 makes the stride equal to 1.
-  EXPECT_THAT(EvaluateMapAt(symbolic_tile->stride_map(), {1, 1, 6, 4}),
+  EXPECT_THAT(EvaluateAffineMap(symbolic_tile->stride_map(), {1, 1, 6, 4}),
               ElementsAre(1, 1));
   // Capturing elements only along dimension 1 makes the stride equal to
   // the length of dimension 2 (6).
-  EXPECT_THAT(EvaluateMapAt(symbolic_tile->stride_map(), {1, 8, 1, 4}),
+  EXPECT_THAT(EvaluateAffineMap(symbolic_tile->stride_map(), {1, 8, 1, 4}),
               ElementsAre(6, 1));
   // Capturing elements only along dimension 0 makes the stride equal to the
   // product of the lengths of dimensions 1 and 2 (8 * 6).
-  EXPECT_THAT(EvaluateMapAt(symbolic_tile->stride_map(), {2, 1, 1, 4}),
+  EXPECT_THAT(EvaluateAffineMap(symbolic_tile->stride_map(), {2, 1, 1, 4}),
               ElementsAre(48, 1));
   // Capturing elements along dimension 0 and dimension 1 makes the stride
   // equal to the length of dimension 2 (6).
-  EXPECT_THAT(EvaluateMapAt(symbolic_tile->stride_map(), {2, 8, 1, 4}),
+  EXPECT_THAT(EvaluateAffineMap(symbolic_tile->stride_map(), {2, 8, 1, 4}),
               ElementsAre(6, 1));
   // Capturing a single element in the collapsed dimensions makes the stride 0.
-  EXPECT_THAT(EvaluateMapAt(symbolic_tile->stride_map(), {1, 1, 1, 4}),
+  EXPECT_THAT(EvaluateAffineMap(symbolic_tile->stride_map(), {1, 1, 1, 4}),
               ElementsAre(0, 1));
 }
 
@@ -234,9 +210,9 @@ TEST_F(SymbolicTileTest, CanPropagateTileThroughElementwiseOp) {
       SymbolicTile::FromIndexingMap(*input_indexing.indexing_maps[0].begin()),
       Optional(MatchSymbolicTileString(R"(
       Symbolic tile with
-        offset_map: ()[s0] -> (0)
-        size_map: ()[s0] -> (s0)
-        stride_map: ()[s0] -> (1)
+        offset_map: (d0) -> (0)
+        size_map: (d0) -> (d0)
+        stride_map: (d0) -> (1)
       )")));
 }
 
@@ -253,9 +229,9 @@ TEST_F(SymbolicTileTest, CanPropagateTileFromBroadcastOutputToInput) {
       SymbolicTile::FromIndexingMap(*input_indexing.indexing_maps[0].begin()),
       Optional(MatchSymbolicTileString(R"(
       Symbolic tile with
-        offset_map: ()[s0, s1] -> (0)
-        size_map: ()[s0, s1] -> (s1)
-        stride_map: ()[s0, s1] -> (1)
+        offset_map: (d0, d1) -> (0)
+        size_map: (d0, d1) -> (d1)
+        stride_map: (d0, d1) -> (1)
       )")));
 }
 
@@ -279,9 +255,9 @@ TEST_F(SymbolicTileTest, CanPropagateTileFromReduceOutputToInput) {
       SymbolicTile::FromIndexingMap(*input_indexing.indexing_maps[0].begin()),
       Optional(MatchSymbolicTileString(R"(
       Symbolic tile with
-        offset_map: ()[s0] -> (0, 0)
-        size_map: ()[s0] -> (125, s0)
-        stride_map: ()[s0] -> (1, 1)
+        offset_map: (d0) -> (0, 0)
+        size_map: (d0) -> (125, d0)
+        stride_map: (d0) -> (1, 1)
       )")));
 }
 
@@ -298,9 +274,9 @@ TEST_F(SymbolicTileTest, CanPropagateTileThroughReverse) {
       SymbolicTile::FromIndexingMap(*input_indexing.indexing_maps[0].begin()),
       Optional(MatchSymbolicTileString(R"(
       Symbolic tile with
-        offset_map: ()[s0] -> (-s0 + 179)
-        size_map: ()[s0] -> (s0)
-        stride_map: ()[s0] -> (1)
+        offset_map: (d0) -> (-d0 + 179)
+        size_map: (d0) -> (d0)
+        stride_map: (d0) -> (1)
       )")));
 }
 
@@ -317,9 +293,9 @@ TEST_F(SymbolicTileTest, CanPropagateTileFromSliceOutputToInput) {
       SymbolicTile::FromIndexingMap(*input_indexing.indexing_maps[0].begin()),
       Optional(MatchSymbolicTileString(R"(
       Symbolic tile with
-        offset_map: ()[s0, s1] -> (40, 20)
-        size_map: ()[s0, s1] -> (s0, s1)
-        stride_map: ()[s0, s1] -> (2, 4)
+        offset_map: (d0, d1) -> (40, 20)
+        size_map: (d0, d1) -> (d0, d1)
+        stride_map: (d0, d1) -> (2, 4)
       )")));
 }
 
@@ -336,9 +312,9 @@ TEST_F(SymbolicTileTest, CanPropagateTileThroughTranspose) {
       SymbolicTile::FromIndexingMap(*input_indexing.indexing_maps[0].begin()),
       Optional(MatchSymbolicTileString(R"(
       Symbolic tile with
-        offset_map: ()[s0, s1] -> (0, 0)
-        size_map: ()[s0, s1] -> (s1, s0)
-        stride_map: ()[s0, s1] -> (1, 1)
+        offset_map: (d0, d1) -> (0, 0)
+        size_map: (d0, d1) -> (d1, d0)
+        stride_map: (d0, d1) -> (1, 1)
       )")));
 }
 
@@ -358,25 +334,25 @@ TEST_F(SymbolicTileTest, CanPropagateTileThroughConcatenate) {
       SymbolicTile::FromIndexingMap(*input_indexing.indexing_maps[0].begin()),
       Optional(MatchSymbolicTileString(R"(
       Symbolic tile with
-        offset_map: ()[s0, s1, s2] -> (0, 0, 0)
-        size_map: ()[s0, s1, s2] -> (s0, s1, s2)
-        stride_map: ()[s0, s1, s2] -> (1, 1, 1)
+        offset_map: (d0, d1, d2) -> (0, 0, 0)
+        size_map: (d0, d1, d2) -> (d0, d1, d2)
+        stride_map: (d0, d1, d2) -> (1, 1, 1)
       )")));
   EXPECT_THAT(
       SymbolicTile::FromIndexingMap(*input_indexing.indexing_maps[1].begin()),
       Optional(MatchSymbolicTileString(R"(
       Symbolic tile with
-        offset_map: ()[s0, s1, s2] -> (0, -5, 0)
-        size_map: ()[s0, s1, s2] -> (s0, s1, s2)
-        stride_map: ()[s0, s1, s2] -> (1, 1, 1)
+        offset_map: (d0, d1, d2) -> (0, -5, 0)
+        size_map: (d0, d1, d2) -> (d0, d1, d2)
+        stride_map: (d0, d1, d2) -> (1, 1, 1)
       )")));
   EXPECT_THAT(
       SymbolicTile::FromIndexingMap(*input_indexing.indexing_maps[2].begin()),
       Optional(MatchSymbolicTileString(R"(
       Symbolic tile with
-        offset_map: ()[s0, s1, s2] -> (0, -16, 0)
-        size_map: ()[s0, s1, s2] -> (s0, s1, s2)
-        stride_map: ()[s0, s1, s2] -> (1, 1, 1)
+        offset_map: (d0, d1, d2) -> (0, -16, 0)
+        size_map: (d0, d1, d2) -> (d0, d1, d2)
+        stride_map: (d0, d1, d2) -> (1, 1, 1)
       )")));
 }
 
@@ -395,9 +371,9 @@ TEST_F(SymbolicTileTest, CanPropagateTileThroughPadOpWithoutInteriorPadding) {
       SymbolicTile::FromIndexingMap(*input_indexing.indexing_maps[0].begin()),
       Optional(MatchSymbolicTileString(R"(
       Symbolic tile with
-        offset_map: ()[s0, s1] -> (-2, -1)
-        size_map: ()[s0, s1] -> (s0, s1)
-        stride_map: ()[s0, s1] -> (1, 1)
+        offset_map: (d0, d1) -> (-2, -1)
+        size_map: (d0, d1) -> (d0, d1)
+        stride_map: (d0, d1) -> (1, 1)
       )")));
 }
 
@@ -419,21 +395,21 @@ TEST_F(SymbolicTileTest, CanPropagateTileThroughDynamicSlice) {
 
   EXPECT_THAT(
       SymbolicTile::FromIndexingMap(*input_indexing.indexing_maps[0].begin()),
-      // s0, s1, s2: tile sizes
-      // s3, s4: runtime parameters
-      // Note: We don't have s0 in the size map's rhs, because the first dim
+      // d0, d1, d2: tile sizes
+      // s0, s1: runtime parameters
+      // Note: We don't have d0 in the size map's rhs, because the first dim
       // of the tile size can only be 1. The second offset is optimized to 0,
       // because that is the only possible value.
       Optional(MatchSymbolicTileString(R"(
       Symbolic tile with
-        offset_map: ()[s0, s1, s2, s3, s4] -> (s3, 0, s4)
-        size_map: ()[s0, s1, s2] -> (1, s1, s2)
-        stride_map: ()[s0, s1, s2] -> (0, 1, 1)
+        offset_map: (d0, d1, d2)[s0, s1] -> (s0, 0, s1)
+        size_map: (d0, d1, d2) -> (1, d1, d2)
+        stride_map: (d0, d1, d2) -> (0, 1, 1)
         rt_vars:
-          s3 in [0, 2)
+          s0 in [0, 1]
             hlo: %of1 = s32[] parameter(1)
             (d0, d1, d2) -> ()
-          s4 in [0, 227)
+          s1 in [0, 226]
             hlo: %of3 = s32[] parameter(3)
             (d0, d1, d2) -> ()
       )")));
@@ -442,9 +418,9 @@ TEST_F(SymbolicTileTest, CanPropagateTileThroughDynamicSlice) {
         SymbolicTile::FromIndexingMap(*input_indexing.indexing_maps[i].begin()),
         Optional(MatchSymbolicTileString(R"(
         Symbolic tile with
-          offset_map: ()[s0, s1, s2] -> ()
-          size_map: ()[s0, s1, s2] -> ()
-          stride_map: ()[s0, s1, s2] -> ()
+          offset_map: (d0, d1, d2) -> ()
+          size_map: (d0, d1, d2) -> ()
+          stride_map: (d0, d1, d2) -> ()
         )")));
   }
 }
@@ -468,24 +444,24 @@ TEST_F(SymbolicTileTest, CanPropagateTileThroughDynamicUpdateSlice) {
       SymbolicTile::FromIndexingMap(*input_indexing.indexing_maps[0].begin()),
       Optional(MatchSymbolicTileString(R"(
       Symbolic tile with
-        offset_map: ()[s0, s1] -> (0, 0)
-        size_map: ()[s0, s1] -> (s0, s1)
-        stride_map: ()[s0, s1] -> (1, 1)
+        offset_map: (d0, d1) -> (0, 0)
+        size_map: (d0, d1) -> (d0, d1)
+        stride_map: (d0, d1) -> (1, 1)
       )")));
   EXPECT_THAT(
       SymbolicTile::FromIndexingMap(*input_indexing.indexing_maps[1].begin()),
-      // s0, s1: tile sizes
-      // s2, s3: runtime parameters
+      // d0, d1: tile sizes
+      // s0, s1: runtime parameters
       Optional(MatchSymbolicTileString(R"(
       Symbolic tile with
-        offset_map: ()[s0, s1, s2, s3] -> (-s2, -s3)
-        size_map: ()[s0, s1] -> (s0, s1)
-        stride_map: ()[s0, s1] -> (1, 1)
+        offset_map: (d0, d1)[s0, s1] -> (-s0, -s1)
+        size_map: (d0, d1) -> (d0, d1)
+        stride_map: (d0, d1) -> (1, 1)
         rt_vars:
-          s2 in [0, 16)
+          s0 in [0, 15]
             hlo: %of1 = s32[] parameter(2)
             (d0, d1) -> ()
-          s3 in [0, 21)
+          s1 in [0, 20]
             hlo: %of2 = s32[] parameter(3)
             (d0, d1) -> ()
       )")));
@@ -494,9 +470,9 @@ TEST_F(SymbolicTileTest, CanPropagateTileThroughDynamicUpdateSlice) {
         SymbolicTile::FromIndexingMap(*input_indexing.indexing_maps[i].begin()),
         Optional(MatchSymbolicTileString(R"(
         Symbolic tile with
-          offset_map: ()[s0, s1] -> ()
-          size_map: ()[s0, s1] -> ()
-          stride_map: ()[s0, s1] -> ()
+          offset_map: (d0, d1) -> ()
+          size_map: (d0, d1) -> ()
+          stride_map: (d0, d1) -> ()
         )")));
   }
 }
@@ -517,18 +493,18 @@ TEST_F(SymbolicTileTest, CanPropagateTileThroughGather) {
 
   EXPECT_THAT(
       SymbolicTile::FromIndexingMap(*input_indexing.indexing_maps[0].begin()),
-      // s0, s1, s2, s3: tile sizes
-      // s4, s5: runtime parameters
+      // d0, d1, d2, d3: tile sizes
+      // s0, s1: runtime parameters
       Optional(MatchSymbolicTileString(R"(
       Symbolic tile with
-        offset_map: ()[s0, s1, s2, s3, s4, s5] -> (s4, s5, 0)
-        size_map: ()[s0, s1, s2, s3] -> (s1, s2, s3)
-        stride_map: ()[s0, s1, s2, s3] -> (1, 1, 1)
+        offset_map: (d0, d1, d2, d3)[s0, s1] -> (s0, s1, 0)
+        size_map: (d0, d1, d2, d3) -> (d1, d2, d3)
+        stride_map: (d0, d1, d2, d3) -> (1, 1, 1)
         rt_vars:
-          s4 in [0, 27)
+          s0 in [0, 26]
             hlo: %indices = s32[1806,2]{1,0} parameter(1)
             (d0, d1, d2, d3) -> (d0, 0)
-          s5 in [0, 69)
+          s1 in [0, 68]
             hlo: %indices = s32[1806,2]{1,0} parameter(1)
             (d0, d1, d2, d3) -> (d0, 1)
       )")));
@@ -537,9 +513,9 @@ TEST_F(SymbolicTileTest, CanPropagateTileThroughGather) {
       SymbolicTile::FromIndexingMap(*input_indexing.indexing_maps[1].begin()),
       Optional(MatchSymbolicTileString(R"(
       Symbolic tile with
-        offset_map: ()[s0, s1, s2, s3] -> (0, 0)
-        size_map: ()[s0, s1, s2, s3] -> (s0, 2)
-        stride_map: ()[s0, s1, s2, s3] -> (1, 1)
+        offset_map: (d0, d1, d2, d3) -> (0, 0)
+        size_map: (d0, d1, d2, d3) -> (d0, 2)
+        stride_map: (d0, d1, d2, d3) -> (1, 1)
       )")));
 }
 
@@ -565,17 +541,72 @@ TEST_F(SymbolicTileTest, CanPropagateTileThroughSplitReshapeOfReverse) {
       SymbolicTile::FromIndexingMap(*input_indexing.indexing_maps[0].begin()),
       Optional(MatchSymbolicTileString(R"(
       Symbolic tile with
-        offset_map: ()[s0, s1] ->
-          (0, -((s0 + 5) floordiv 6) + 8, -(s0 - ((s0 - 1) floordiv 6) * 6) + 6, 0)
-        size_map: ()[s0, s1] ->
-          (1, (s0 + 5) floordiv 6, s0 - ((s0 - 1) floordiv 6) * 6, s1)
-        stride_map: ()[s0, s1] -> (0, 1, 1, 1)
+        offset_map: (d0, d1) ->
+          (0, -((d0 + 5) floordiv 6) + 8, -(d0 - ((d0 - 1) floordiv 6) * 6) + 6, 0)
+        size_map: (d0, d1) ->
+          (1, (d0 + 5) floordiv 6, d0 - ((d0 - 1) floordiv 6) * 6, d1)
+        stride_map: (d0, d1) -> (0, 1, 1, 1)
+      )")));
+}
+
+TEST_F(SymbolicTileTest, CanPropagateTileThroughSplitReductionOfSplittedAxis) {
+  // A split reshape of a reverse creates a sum of strided symbols.
+  auto input_indexing = GetOutputToInputIndexing(ParseAndGetRoot(R"(
+    HloModule m
+    add {
+      p0 = f32[] parameter(0)
+      p1 = f32[] parameter(1)
+      ROOT add = f32[] add(p0, p1)
+    }
+
+    computation {
+      p0 = f32[18] parameter(0)
+      bitcast = f32[9,2] bitcast(p0)
+      c0 = f32[] constant(0)
+      reduce_0 = f32[9] reduce(bitcast, c0), dimensions={1}, to_apply=add
+      ROOT reduce_1 = f32[] reduce(reduce_0, c0), dimensions={0}, to_apply=add
+    }
+
+    ENTRY e {
+      p0 = f32[18] parameter(0)
+      ROOT fusion = f32[] fusion(p0), kind=kLoop, calls=computation
+    }
+  )"));
+
+  EXPECT_THAT(
+      SymbolicTile::FromIndexingMap(*input_indexing.indexing_maps[0].begin()),
+      Optional(MatchSymbolicTileString(R"(
+      Symbolic tile with
+        offset_map: () -> (0)
+        size_map: () -> (18)
+        stride_map: () -> (1)
+      )")));
+}
+
+TEST_F(SymbolicTileTest, CanPropagateTileThroughSummationOfSymbols) {
+  // Such an indexing map is representative of a sequence of HLOs containing a
+  // bitcast followed by two sequential reductions of the split axis, i.e.
+  // something like
+  //   p0 = f32[18] parameter(0)
+  //   bitcast = f32[9,2] bitcast(p0)
+  //   reduce_0 = f32[9] reduce(bitcast), dimensions={1}
+  //   reduce_1 = f32[] reduce(reduce_0), dimensions={0}
+  IndexingMap indexing_map = IndexingMap::FromTensorSizes(
+      ParseAffineMap("()[s0, s1] -> (s1 * 2 + s0)", &mlir_context_), {},
+      {2, 9});
+
+  EXPECT_THAT(SymbolicTile::FromIndexingMap(indexing_map),
+              Optional(MatchSymbolicTileString(R"(
+      Symbolic tile with
+        offset_map: () -> (0)
+        size_map: () -> (18)
+        stride_map: () -> (1)
       )")));
 }
 
 TEST_F(SymbolicTileTest,
        FailsGracefullyAtPropagatingTileThroughSliceOfSplitReshape) {
-  // TODO(b/326998704): constraints should allow us to unblock this use case.
+  // TODO(b/349487906): constraints should allow us to unblock this use case.
   // A slice of a split reshape creates a non-unit stride atop a floordiv.
   auto input_indexing = GetOutputToInputIndexing(ParseAndGetRoot(R"(
     HloModule m
@@ -598,8 +629,6 @@ TEST_F(SymbolicTileTest,
 
 TEST_F(SymbolicTileTest,
        FailsGracefullyAtPropagatingTileThroughMisalignedSliceOfSplitReshape) {
-  // TODO(b/326998704): constraints should allow us to unblock part of this use
-  // case.
   // TODO(b/331257678): handling correctly cases where offsets don't get
   // simplified away perfectly will allow us to unblock part of this use case.
   auto input_indexing = GetOutputToInputIndexing(ParseAndGetRoot(R"(
@@ -623,7 +652,7 @@ TEST_F(SymbolicTileTest,
 
 TEST_F(SymbolicTileTest,
        FailsGracefullyAtPropagatingTileThroughSliceOfSplitReshapeOnTranspose) {
-  // TODO(b/326998704): constraints should allow us to unblock this use case.
+  // TODO(b/349487906): constraints should allow us to unblock this use case.
   // A slice of a split reshape creates a non-unit stride atop a floordiv.
   auto input_indexing = GetOutputToInputIndexing(ParseAndGetRoot(R"(
     HloModule m
@@ -647,7 +676,7 @@ TEST_F(SymbolicTileTest,
 
 TEST_F(SymbolicTileTest,
        FailsGracefullyAtPropagatingTileThroughSliceOfSplitReshapeOfReverse) {
-  // TODO(b/326998704): constraints should allow us to unblock this use case.
+  // TODO(b/349487906): constraints should allow us to unblock this use case.
   // A slice of a split reshape of a reverse creates a negative non-unit stride
   // atop a floordiv.
   auto input_indexing = GetOutputToInputIndexing(ParseAndGetRoot(R"(
@@ -716,14 +745,14 @@ TEST_F(SymbolicTileTest, CanCombineCompatibleConstraints) {
       SymbolicTile::FromIndexingMap(*input_indexing.indexing_maps[0].begin()),
       Optional(MatchSymbolicTileString(R"(
       Symbolic tile with
-        offset_map: ()[s0, s1] -> (0, 0, 0, 0, 0)
-        size_map: ()[s0, s1] -> (1, (s0 + 5) floordiv 6, s0 - ((s0 - 1) floordiv 6) * 6, (s1 + 7) floordiv 8, s1 - ((s1 - 1) floordiv 8) * 8)
-        stride_map: ()[s0, s1] -> (0, 1, 1, 1, 1)
+        offset_map: (d0, d1) -> (0, 0, 0, 0, 0)
+        size_map: (d0, d1) -> (1, (d0 + 5) floordiv 6, d0 - ((d0 - 1) floordiv 6) * 6, (d1 + 7) floordiv 8, d1 - ((d1 - 1) floordiv 8) * 8)
+        stride_map: (d0, d1) -> (0, 1, 1, 1, 1)
         constraints:
-          6 mod s0 in [0, 1) && 8 mod s1 in [0, 1) ||
-          6 mod s0 in [0, 1) && s1 mod 8 in [0, 1) ||
-          8 mod s1 in [0, 1) && s0 mod 6 in [0, 1) ||
-          s0 mod 6 in [0, 1) && s1 mod 8 in [0, 1)
+          6 mod d0 in [0, 0] && 8 mod d1 in [0, 0] ||
+          6 mod d0 in [0, 0] && d1 mod 8 in [0, 0] ||
+          8 mod d1 in [0, 0] && d0 mod 6 in [0, 0] ||
+          d0 mod 6 in [0, 0] && d1 mod 8 in [0, 0]
       )")));
 }
 
@@ -743,9 +772,10 @@ TEST_F(SymbolicTileTest,
   EXPECT_THAT(SymbolicTile::FromIndexingMap(indexing_map),
               Optional(MatchSymbolicTileString(R"(
       Symbolic tile with
-        offset_map: ()[s0, s1, s2] -> (0, 0)
-        size_map: ()[s0, s1, s2] -> (s0 * s1, 50304)
-        stride_map: ()[s0, s1, s2] -> (((-s1 + 2049) floordiv 2048) * ((-((-s0 + 5) floordiv 4) + 1) * 2048) + -((-s1 + 2049) floordiv 2048) + 1, 1)
+        offset_map: (d0, d1, d2) -> (0, 0)
+        size_map: (d0, d1, d2) -> (d0 * d1, 50304)
+        stride_map: (d0, d1, d2) -> (((-d1 + 2049) floordiv 2048) * ((-((-d0 + 5) floordiv 4) + 1) * 2048) + -((-d1 + 2049) floordiv 2048) + 1, 1)
+        constraints: d0 in [1, 1] || d1 in [1, 1] || d1 in [2048, 2048]
       )")));
 }
 
@@ -760,9 +790,26 @@ TEST_F(SymbolicTileTest, CanDeriveTileWhenTheIndexingMapHasSymbolsInASum) {
   EXPECT_THAT(SymbolicTile::FromIndexingMap(indexing_map),
               Optional(MatchSymbolicTileString(R"(
       Symbolic tile with
-        offset_map: ()[s0, s1, s2] -> (0, 0, 0)
-        size_map: ()[s0, s1, s2] -> (s0, s1, s2 * 128)
-        stride_map: ()[s0, s1, s2] -> (1, 1, 1)
+        offset_map: (d0, d1, d2) -> (0, 0, 0)
+        size_map: (d0, d1, d2) -> (d0, d1, d2 * 128)
+        stride_map: (d0, d1, d2) -> (1, 1, 1)
+      )")));
+}
+
+TEST_F(SymbolicTileTest, ResultingConstraintsAreSimplifiedAway) {
+  // The example is from
+  // https://github.com/google/paxml/blob/91893818862645f5e9f23b84f530e611551745f6/paxml/contrib/gpu/scripts_gpu/configs.py#L107-L120.
+  IndexingMap indexing_map = IndexingMap::FromTensorSizes(
+      ParseAffineMap("(d0, d1, d2)[s0] -> (d0, d1, d2 * 128 + s0)",
+                     &mlir_context_),
+      {4, 2048, 393}, {128});
+
+  EXPECT_THAT(SymbolicTile::FromIndexingMap(indexing_map),
+              Optional(MatchSymbolicTileString(R"(
+      Symbolic tile with
+        offset_map: (d0, d1, d2) -> (0, 0, 0)
+        size_map: (d0, d1, d2) -> (d0, d1, d2 * 128)
+        stride_map: (d0, d1, d2) -> (1, 1, 1)
       )")));
 }
 
@@ -770,13 +817,19 @@ class ConstraintExpressionTest : public IndexingTestBase {
  public:
   using ConstraintVector = std::vector<std::pair<std::string, Interval>>;
 
+  ConstraintExpression::Constraint GetConstraint(const std::string& string_expr,
+                                                 int64_t lower, int64_t upper) {
+    return {ParseAffineExpr(string_expr, &mlir_context_),
+            Interval{lower, upper}};
+  }
+
   // Constructs a conjoint constraint from a vector of pairs containing a string
   // representation of an affine expression and an interval.
   ConjointConstraints GetConjointConstraints(
       ConstraintVector&& expr_and_interval_pairs) {
     ConjointConstraints conjunction;
     for (auto& [string_expr, interval] : expr_and_interval_pairs) {
-      conjunction.insert(
+      conjunction.push_back(
           {ParseAffineExpr(string_expr, &mlir_context_), interval});
     }
     return conjunction;
@@ -803,7 +856,7 @@ TEST_F(ConstraintExpressionTest, PrettyPrintingTest) {
   constraints.Or(std::move(conjunction_1));
   constraints.Or(std::move(conjunction_2));
   EXPECT_THAT(constraints, MatchConstraintExpressionString(
-                               "d0 in [0, 6) && d1 in [0, 6) || d2 in [0, 6)"));
+                               "d0 in [0, 5] && d1 in [0, 5] || d2 in [0, 5]"));
 }
 
 TEST_F(ConstraintExpressionTest,
@@ -811,11 +864,11 @@ TEST_F(ConstraintExpressionTest,
   ConstraintExpression constraints;
 
   constraints.And(GetConjointConstraints({{"d0", Interval{0, 5}}}));
-  EXPECT_THAT(constraints, MatchConstraintExpressionString("d0 in [0, 6)"));
+  EXPECT_THAT(constraints, MatchConstraintExpressionString("d0 in [0, 5]"));
 
   // Constraints are intersected.
   constraints.And(GetConjointConstraints({{"d0", Interval{3, 6}}}));
-  EXPECT_THAT(constraints, MatchConstraintExpressionString("d0 in [3, 6)"));
+  EXPECT_THAT(constraints, MatchConstraintExpressionString("d0 in [3, 5]"));
 
   // Empty intersection results in unsatisfiability.
   constraints.And(GetConjointConstraints({{"d0", Interval{7, 8}}}));
@@ -864,7 +917,7 @@ TEST_F(
   constraints.Or(std::move(conjunction_1));
   constraints.Or(std::move(conjunction_2));
   EXPECT_THAT(constraints,
-              MatchConstraintExpressionString("d0 in [0, 6) || d1 in [0, 6)"));
+              MatchConstraintExpressionString("d0 in [0, 5] || d1 in [0, 5]"));
 
   // `conjunction_1` && `conjunction_3` is an unsatisfiable constraint. Taking
   // the conjunction of the existing constraint expression with `conjunction_3`
@@ -875,7 +928,7 @@ TEST_F(
   constraints.And(std::move(conjunction_3));
 
   EXPECT_THAT(constraints,
-              MatchConstraintExpressionString("d0 in [6, 7) && d1 in [0, 6)"));
+              MatchConstraintExpressionString("d0 in [6, 6] && d1 in [0, 5]"));
 
   // But becomes unsatisfiable if we eliminate the last remaining constraint by
   // constructing another unsatisfiable conjunction.
@@ -1056,6 +1109,113 @@ TEST_F(
 
   EXPECT_FALSE(
       ConstraintExpression::And(constraints_1, constraints_2).is_satisfiable());
+}
+
+TEST_F(ConstraintExpressionTest,
+       CanSimplifyAlwaysSatisfiedContraintExpression) {
+  ConstraintExpression constraints;
+  constraints.Or(GetConjointConstraints({
+      {"d0", Interval{0, 1}},
+  }));
+  constraints.Or(GetConjointConstraints({
+      {"25", Interval{0, 100}},
+      {"1", Interval{1, 1}},
+  }));
+  constraints.Or(GetConjointConstraints({
+      {"d0", Interval{0, -1}},
+  }));
+
+  constraints.Simplify();
+
+  EXPECT_THAT(constraints, MatchConstraintExpressionString("always satisfied"));
+}
+
+TEST_F(ConstraintExpressionTest, CanSimplifyUnsatisfiableContraintExpression) {
+  ConstraintExpression constraints;
+  constraints.Or(GetConjointConstraints({
+      {"d0", Interval{0, -1}},
+  }));
+  constraints.Or(GetConjointConstraints({
+      {"1", Interval{2, 3}},
+  }));
+
+  constraints.Simplify();
+
+  EXPECT_THAT(constraints, MatchConstraintExpressionString("unsatisfiable"));
+}
+
+TEST_F(ConstraintExpressionTest,
+       CanSimplifyAwayAlwaysSatisfiedPartOfConjunction) {
+  ConstraintExpression constraints;
+  constraints.Or(GetConjointConstraints({
+      {"d0", Interval{0, 1}},
+      {"1", Interval{1, 1}},
+      {"d1", Interval{0, 1}},
+      {"2", Interval{2, 3}},
+  }));
+
+  constraints.Simplify();
+
+  EXPECT_THAT(constraints,
+              MatchConstraintExpressionString("d0 in [0, 1] && d1 in [0, 1]"));
+}
+
+TEST_F(ConstraintExpressionTest,
+       CanSimplifyAwayUnsatisfiablePartOfDisjunction) {
+  ConstraintExpression constraints;
+  constraints.Or(GetConjointConstraints({
+      {"d0", Interval{0, 1}},
+  }));
+  constraints.Or(GetConjointConstraints({
+      {"d1", Interval{0, 1}},
+      {"1", Interval{0, 0}},
+      {"d2", Interval{0, 1}},
+  }));
+
+  constraints.Simplify();
+
+  EXPECT_THAT(constraints, MatchConstraintExpressionString("d0 in [0, 1]"));
+}
+
+TEST_F(ConstraintExpressionTest, SimplifyKeepsAlwaysSatisfiedUnchanged) {
+  ConstraintExpression constraints;
+
+  constraints.Simplify();
+
+  EXPECT_THAT(constraints, MatchConstraintExpressionString("always satisfied"));
+}
+
+TEST_F(ConstraintExpressionTest, SimplifyKeepsUnsatisfiableUnchanged) {
+  auto constraints =
+      ConstraintExpression::GetUnsatisfiableConstraintExpression();
+
+  constraints.Simplify();
+
+  EXPECT_THAT(constraints, MatchConstraintExpressionString("unsatisfiable"));
+}
+
+TEST_F(ConstraintExpressionTest, SimplifyRemovesRedundantConstraints) {
+  Constraint c0 = GetConstraint("d0", 0, 0);
+  Constraint c1 = GetConstraint("d1", 1, 1);
+
+  ConjointConstraints conjunction_0{c0, c1};
+  ConjointConstraints conjunction_1{c1, c0};
+  ConjointConstraints conjunction_2{c0};
+
+  ConstraintExpression constraints;
+  constraints.Or(conjunction_0);
+  constraints.Or(conjunction_1);
+  constraints.Or(conjunction_2);
+  constraints.Or(conjunction_1);
+  constraints.Or(conjunction_0);
+
+  constraints.Simplify();
+
+  // We could simplify those contraints even further to `d0 in [0, 0]` by
+  // checking that one conjunction is a subset of the other, but we don't do
+  // that yet.
+  EXPECT_THAT(constraints, MatchConstraintExpressionString(
+                               "d0 in [0, 0] || d0 in [0, 0] && d1 in [1, 1]"));
 }
 
 }  // namespace

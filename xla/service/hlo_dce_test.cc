@@ -35,9 +35,9 @@ limitations under the License.
 #include "xla/tests/hlo_test_base.h"
 #include "xla/tests/literal_test_util.h"
 #include "xla/tests/test_utils.h"
+#include "xla/tsl/lib/core/status_test_util.h"
 #include "xla/types.h"
 #include "xla/xla_data.pb.h"
-#include "tsl/lib/core/status_test_util.h"
 
 namespace xla {
 namespace {
@@ -193,8 +193,7 @@ TEST_F(HloDceTest, ShardingCustomCallInstruction) {
       HloInstruction::CreateCustomCall(p0->shape(),
                                        /*operands=*/{add},
                                        /*custom_call_target=*/"Sharding"));
-  dangling_sharding->set_sharding(
-      HloSharding::Tile(TileAssignment((absl::Span<const int64_t>){2, 1})));
+  dangling_sharding->set_sharding(HloSharding::Tile(TileAssignment({2, 1})));
   builder.AddInstruction(HloInstruction::CreateBinary(
       p0->shape(), HloOpcode::kMultiply, add, add));
   auto module = CreateNewVerifiedModule();
@@ -219,8 +218,7 @@ TEST_F(HloDceTest, ShardingCustomCallInstructionWithDeadOperand) {
       HloInstruction::CreateCustomCall(p0->shape(),
                                        /*operands=*/{add},
                                        /*custom_call_target=*/"Sharding"));
-  dangling_sharding->set_sharding(
-      HloSharding::Tile(TileAssignment((absl::Span<const int64_t>){2, 1})));
+  dangling_sharding->set_sharding(HloSharding::Tile(TileAssignment({2, 1})));
   builder.AddInstruction(
       HloInstruction::CreateBinary(p0->shape(), HloOpcode::kMultiply, p0, p0));
   auto module = CreateNewVerifiedModule();

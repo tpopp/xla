@@ -23,20 +23,18 @@ limitations under the License.
 #include <utility>
 #include <vector>
 
-#include "absl/functional/any_invocable.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
 #include "absl/types/span.h"
 #include "xla/stream_executor/device_memory.h"
 #include "xla/stream_executor/host/host_kernel_c_api.h"
-#include "xla/stream_executor/kernel_factory.h"
 #include "xla/stream_executor/kernel_spec.h"
 #include "xla/stream_executor/launch_dim.h"
 #include "xla/stream_executor/platform.h"
 #include "xla/stream_executor/platform_manager.h"
 #include "xla/stream_executor/stream_executor.h"
 #include "xla/tsl/concurrency/async_value_ref.h"
-#include "tsl/lib/core/status_test_util.h"
+#include "xla/tsl/lib/core/status_test_util.h"
 #include "tsl/platform/cpu_info.h"
 #include "tsl/platform/env.h"
 #include "tsl/platform/statusor.h"
@@ -45,12 +43,6 @@ limitations under the License.
 #include "tsl/platform/threadpool.h"
 
 namespace stream_executor::host {
-
-static auto ToCopyableTask(HostKernel::Task task) {
-  return [shared_task = std::make_shared<decltype(task)>(std::move(task))] {
-    (*shared_task)();
-  };
-}
 
 static SE_HOST_KernelError* AddI32(const SE_HOST_KernelCallFrame* call_frame) {
   const SE_HOST_KernelArg& lhs = call_frame->args[0];
@@ -97,10 +89,10 @@ define ptr @LlvmAddI32(ptr noundef %0) {
 }
 )";
 
-static absl::StatusOr<std::unique_ptr<StreamExecutor>> NewStreamExecutor() {
+static absl::StatusOr<StreamExecutor*> NewStreamExecutor() {
   StreamExecutorConfig config(/*ordinal=*/0);
   TF_ASSIGN_OR_RETURN(auto platform, PlatformManager::PlatformWithName("Host"));
-  TF_ASSIGN_OR_RETURN(auto stream_exec, platform->GetUncachedExecutor(config));
+  TF_ASSIGN_OR_RETURN(auto stream_exec, platform->GetExecutor(config));
   return stream_exec;
 }
 
@@ -164,8 +156,7 @@ TEST(HostKernelTest, Addition3D) {
 
   TF_ASSERT_OK_AND_ASSIGN(auto executor, NewStreamExecutor());
   TF_ASSERT_OK_AND_ASSIGN(auto stream, executor->CreateStream());
-  TF_ASSERT_OK_AND_ASSIGN(auto add,
-                          KernelFactory::Create(executor.get(), spec));
+  TF_ASSERT_OK_AND_ASSIGN(auto add, executor->LoadKernel(spec));
 
   const KernelArgsDeviceMemoryArray kargs{args, /*shared_memory_bytes=*/0};
   TF_ASSERT_OK(stream->Launch(ThreadDim(2, 2, 3), BlockDim(1), *add, kargs));
@@ -191,8 +182,7 @@ TEST(HostKernelTest, JitAddition) {
 
   TF_ASSERT_OK_AND_ASSIGN(auto executor, NewStreamExecutor());
   TF_ASSERT_OK_AND_ASSIGN(auto stream, executor->CreateStream());
-  TF_ASSERT_OK_AND_ASSIGN(auto add,
-                          KernelFactory::Create(executor.get(), spec));
+  TF_ASSERT_OK_AND_ASSIGN(auto add, executor->LoadKernel(spec));
 
   const KernelArgsDeviceMemoryArray kargs{args, /*shared_memory_bytes=*/0};
   TF_ASSERT_OK(stream->Launch(ThreadDim(4), BlockDim(1), *add, kargs));
@@ -213,7 +203,7 @@ TEST(HostKernelTest, LaunchAsync) {
 
   HostKernel::TaskRunner runner = [&](HostKernel::Task task) {
     num_tasks.fetch_add(1, std::memory_order_relaxed);
-    thread_pool->Schedule(ToCopyableTask(std::move(task)));
+    thread_pool->Schedule(std::move(task));
   };
 
   HostKernel host_kernel(/*arity=*/0, no_op);
@@ -243,7 +233,7 @@ TEST(HostKernelTest, LaunchAsyncError) {
 
   HostKernel::TaskRunner runner = [&](HostKernel::Task task) {
     num_tasks.fetch_add(1, std::memory_order_relaxed);
-    thread_pool->Schedule(ToCopyableTask(std::move(task)));
+    thread_pool->Schedule(std::move(task));
   };
 
   HostKernel host_kernel(/*arity=*/0, maybe_error);
@@ -272,9 +262,10 @@ static void BM_HostKernelSyncLaunch(benchmark::State& state) {
   int32_t tdim_x = state.range(0);
 
   HostKernel kernel(/*arity=*/0, NoOp);
+  absl::Span<const SE_HOST_KernelArg> args;
+
   for (auto _ : state) {
-    benchmark::DoNotOptimize(kernel.Launch(
-        ThreadDim(tdim_x), absl::Span<const SE_HOST_KernelArg>()));
+    benchmark::DoNotOptimize(kernel.Launch(ThreadDim(tdim_x), args));
   }
 }
 
@@ -284,13 +275,15 @@ static void BM_HostKernelAsyncLaunch(benchmark::State& state) {
   auto thread_pool = std::make_shared<tsl::thread::ThreadPool>(
       tsl::Env::Default(), "benchmark", tsl::port::MaxParallelism());
 
+  auto task_runner = [&thread_pool](HostKernel::Task task) {
+    thread_pool->Schedule(std::move(task));
+  };
+
   HostKernel kernel(/*arity=*/0, NoOp);
+  absl::Span<const SE_HOST_KernelArg> args;
+
   for (auto _ : state) {
-    auto event =
-        kernel.Launch(ThreadDim(tdim_x), absl::Span<const SE_HOST_KernelArg>(),
-                      [&](auto task) {
-                        thread_pool->Schedule(ToCopyableTask(std::move(task)));
-                      });
+    auto event = kernel.Launch(ThreadDim(tdim_x), args, task_runner);
     tsl::BlockUntilReady(event);
   }
 }

@@ -16,8 +16,11 @@ limitations under the License.
 #ifndef XLA_SERVICE_CPU_RUNTIME_THUNK_H_
 #define XLA_SERVICE_CPU_RUNTIME_THUNK_H_
 
+#include <atomic>
 #include <cstdint>
+#include <functional>
 #include <memory>
+#include <optional>
 #include <ostream>
 #include <string>
 #include <string_view>
@@ -26,6 +29,7 @@ limitations under the License.
 #include <vector>
 
 #include "absl/container/inlined_vector.h"
+#include "absl/functional/any_invocable.h"
 #include "absl/status/statusor.h"
 #include "xla/executable_run_options.h"
 #include "xla/ffi/execution_context.h"
@@ -39,6 +43,8 @@ limitations under the License.
 #include "xla/stream_executor/stream.h"
 #include "xla/tsl/concurrency/async_value_ref.h"
 #include "xla/tsl/concurrency/chain.h"
+#include "xla/util.h"
+#include "tsl/platform/logging.h"
 #include "tsl/platform/statusor.h"
 
 namespace Eigen {
@@ -82,6 +88,8 @@ class Thunk {
     kReduceScatter,
     kReplicaId,
     kRngGetAndUpdateState,
+    kSort,
+    kTopK,
     kWhile,
   };
 
@@ -91,12 +99,23 @@ class Thunk {
     int64_t module_id;
   };
 
-  virtual ~Thunk() = default;
+  // An abstract task runner that can be used by a ThunkExecutor (including
+  // thunk executors for nested computations in conditional or while thunks) for
+  // running tasks corresponding to thunk execution. It can be a simple inline
+  // executor that runs tasks on the same thread, or a runner backed by a thread
+  // pool. By default XLA:CPU uses task runner that shares underlying thread
+  // pool with the intra-op thread pool used for compute tasks. We deliberately
+  // do not prescribe task runner to be Eigen or any other particular thread
+  // pool, and let users make the choice.
+  using Task = std::function<void()>;
+  using TaskRunner = absl::AnyInvocable<void(Task)>;
+
+  Thunk(Kind kind, Info info);
 
   Thunk(const Thunk&) = delete;
   Thunk& operator=(const Thunk&) = delete;
 
-  explicit Thunk(Kind kind, Info info) : kind_(kind), info_(std::move(info)) {}
+  virtual ~Thunk() = default;
 
   Kind kind() const { return kind_; }
   const Info& info() const { return info_; }
@@ -117,17 +136,40 @@ class Thunk {
   virtual ResourceUses resource_uses() const { return {}; }
 
   //===--------------------------------------------------------------------===//
-  // HostKernels
+  // FunctionRegistry
   //===--------------------------------------------------------------------===//
 
-  // Interface for finding host kernels (function pointers with host kernel API)
-  // by name. At run time this is typically backed by an LLVM jit compiler that
-  // compiles LLVM IR to executables on demand.
-  class HostKernels {
+  // An API to resolve function pointers required for running ThunkSequence:
+  //
+  // 1. Host kernels that are executed by a KernelThunk via StreamExecutor APIs.
+  // 2. Comparator functions required by a SortThunk.
+  //
+  // At run time this is typically backed by an LLVM JIT compiler that compiles
+  // LLVM IR to function pointers on demand. At compile time, together with
+  // thunks themselves, we emit LLVM module(s) and metadata describing all the
+  // functions required for running emitted thunks (number of threads, etc.).
+  class FunctionRegistry {
    public:
-    virtual ~HostKernels() = default;
+    using Kernel = SE_HOST_Kernel*;
 
-    virtual absl::StatusOr<SE_HOST_Kernel*> Find(std::string_view name) = 0;
+    // TODO(ezhulenev): We rely on legacy IrEmitter to emit comparator
+    // functions, and we use legacy compute function ABI. We should emit a
+    // much simpler comparator function that only takes compared values.
+    using Comparator = void (*)(bool*, /*run_options=*/const void*,
+                                /*params=*/const void**,
+                                /*buffer_table=*/const void*,
+                                /*status=*/const void*,
+                                /*prof_counters=*/const void*);
+
+    virtual ~FunctionRegistry() = default;
+
+    virtual absl::StatusOr<Kernel> FindKernel(std::string_view name) {
+      return Unimplemented("Host kernels are not supported");
+    }
+
+    virtual absl::StatusOr<Comparator> FindComparator(std::string_view name) {
+      return Unimplemented("Comparator functions are not supported");
+    }
   };
 
   //===--------------------------------------------------------------------===//
@@ -166,14 +208,12 @@ class Thunk {
         const ExecutableRunOptions* run_options);
 
     int32_t device_ordinal;
-    stream_executor::Stream* stream = nullptr;
-    stream_executor::DeviceMemoryAllocator* allocator = nullptr;
+    const Eigen::ThreadPoolDevice* intra_op_thread_pool = nullptr;
     const ffi::ExecutionContext* ffi_execution_context = nullptr;
 
    private:
     CustomCallExecuteParams(int32_t device_ordinal,
-                            stream_executor::Stream* stream,
-                            stream_executor::DeviceMemoryAllocator* allocator,
+                            const Eigen::ThreadPoolDevice* intra_op_thread_pool,
                             const ffi::ExecutionContext* ffi_execution_context);
   };
 
@@ -181,23 +221,84 @@ class Thunk {
   // ExecuteParams
   //===--------------------------------------------------------------------===//
 
+  // ExecuteSession controls the number of task runner threads that can
+  // execute thunks concurrently (all thunks in a sequence, including thunks in
+  // nested computations). We limit the number of worker threads that process
+  // ready thunks concurrently to avoid overheads of launching too many tasks.
+  // Once the size of a ready queue exceeds the split threshold, we try to
+  // offload processing of the tail of the ready queue to the task runner.
+  //
+  // We use best-effort strategy to limit the number of worker threads (we rely
+  // on non-atomic pair of compare and add operations for efficiency), and don't
+  // guarantee that the number of concurrent workers is always below the limit,
+  // in some cases it can temporarily go above the limit.
+  class ExecuteSession {
+   public:
+    // TODO(ezhulenev): Number of workers and split threshold should be
+    // configurable with XLA_FLAGS. Also, we should find representative
+    // benchmarks to determine the optimal default values.
+    static constexpr int64_t kMaxWorkers = 4;
+    static constexpr int64_t kSplitThreshold = 8;
+
+    // We use std::shared_ptr as a "lock" where grabbing a copy of the shared
+    // pointer means joining the session executing a thunk sequence. We rely on
+    // shared pointer to keep track of the number of workers executing a thunk
+    // sequence because it is automatically manages atomic counter for us.
+    using Lock = std::shared_ptr<std::nullopt_t>;
+
+    ExecuteSession(int64_t max_workers, int64_t split_threshold);
+
+    // Joins the execute session and increments the number of session workers.
+    Lock Join() const { return lock_; }
+
+    // Tries to join the execute session. Returns empty lock if the session
+    // has reached the maximum number of workers.
+    Lock TryJoin() const {
+      return num_workers() >= max_workers_ ? nullptr : lock_;
+    }
+
+    int64_t num_workers() const { return lock_.use_count() - 1; }
+    int64_t max_workers() const { return max_workers_; }
+    int64_t split_threshold() const { return split_threshold_; }
+
+   private:
+    Lock lock_;
+    int64_t max_workers_;
+    int64_t split_threshold_;
+  };
+
   // Parameters passed to Execute. Execute is responsible for launching "work"
   // on device, i.e., it launches host kernels, calls into libraries, etc.
   struct ExecuteParams {
-    HostKernels* host_kernels = nullptr;
+    FunctionRegistry* function_registry = nullptr;
     const BufferAllocations* buffer_allocations = nullptr;
     runtime::XfeedManager* xfeed = nullptr;
     const Eigen::ThreadPoolDevice* intra_op_threadpool = nullptr;
+    TaskRunner* task_runner = nullptr;
     CollectiveExecuteParams* collective_params = nullptr;
     CustomCallExecuteParams* custom_call_params = nullptr;
+    ExecuteSession session = ExecuteSession(ExecuteSession::kMaxWorkers,
+                                            ExecuteSession::kSplitThreshold);
   };
 
   // An execute event that becomes ready when all tasks are completed.
   using ExecuteEvent = tsl::Chain;
 
-  // Returns non-reference-counted async value ref for thunks executed in the
-  // caller thread to avoid reference counting overhead.
-  static tsl::AsyncValueRef<ExecuteEvent> OkExecuteEvent();
+  // Returns non-reference-counted async value ref in constructed state.
+  // Returned async value is a per-process singleton stored in a storage with a
+  // static duration, and can be safely compared using pointer equality.
+  static tsl::AsyncValueRef<ExecuteEvent> OkExecuteEventSingleton();
+
+  // Returns `OkExecuteEventSingleton()` cached by this thunk instance.
+  tsl::AsyncValueRef<ExecuteEvent> OkExecuteEvent() const { return ok_event_; }
+
+  bool IsOkExecuteEvent(const tsl::AsyncValueRef<ExecuteEvent>& event) const {
+    return event == ok_event_;
+  }
+
+  bool IsOkExecuteEvent(tsl::AsyncValuePtr<ExecuteEvent> event) const {
+    return event == ok_event_.AsPtr();
+  }
 
   // Thunk execution must be asynchronous and never block the caller thread,
   // especially waiting for work submitted into the `intra_op_threadpool`,
@@ -208,12 +309,40 @@ class Thunk {
       const ExecuteParams& params) = 0;
 
  protected:
+  // Helper struct to keep track of pending tasks and an event that signals
+  // completion of the operation to the caller. Useful for thunks that launch
+  // multiple tasks and need to signal completion when all tasks are done (see
+  // ConvolutionThunk and DotThunk for examples).
+  struct ExecuteState {
+    explicit ExecuteState(int64_t num_tasks);
+    ~ExecuteState();
+
+    void Notify();
+
+    std::atomic<int64_t> pending_tasks;
+    tsl::AsyncValueRef<Thunk::ExecuteEvent> event;
+  };
+
   // Encodes thunk info into the TraceMe compatible format.
   std::string TraceMeEncode() const;
+
+  // Returns `true` if thunk should check buffer slices bounds, alignment, etc.
+  // In optimized builds, we skip buffer slices checks, and assume that all
+  // buffer slices are valid, as overhead of buffer slices checks adds up and
+  // become measurable on a hot path of executing tiny thunks.
+  static constexpr bool ShouldCheckBufferSlices() {
+#ifdef NDEBUG
+    return false;
+#else
+    return true;
+#endif  // NDEBUG
+  }
 
  private:
   Kind kind_;
   Info info_;
+
+  tsl::AsyncValueRef<ExecuteEvent> ok_event_;
 };
 
 std::ostream& operator<<(std::ostream& os, Thunk::Kind kind);

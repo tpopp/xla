@@ -35,8 +35,8 @@ limitations under the License.
 #include "xla/stream_executor/platform_manager.h"
 #include "xla/stream_executor/stream_executor.h"
 #include "xla/stream_executor/stream_executor_memory_allocator.h"
+#include "xla/tsl/lib/core/status_test_util.h"
 #include "xla/types.h"  // IWYU pragma: keep
-#include "tsl/lib/core/status_test_util.h"
 #include "tsl/platform/status.h"
 #include "tsl/platform/statusor.h"
 #include "tsl/platform/test.h"
@@ -65,7 +65,9 @@ static constexpr auto s1 = ExecutionStreamId(1);
 struct TestOnlyCommandBufferCmd : public CommandBufferCmd {
   TestOnlyCommandBufferCmd(ExecutionStreamId execution_stream_id,
                            BufferUsageVector buffer_usage)
-      : CommandBufferCmd(execution_stream_id), buffer_usage(buffer_usage) {}
+      : CommandBufferCmd(CommandBufferCmdType::kUnknownCmd,
+                         execution_stream_id),
+        buffer_usage(buffer_usage) {}
 
   absl::Status Record(const Thunk::ExecuteParams&, const RecordParams&,
                       se::CommandBuffer*) override {
@@ -75,6 +77,20 @@ struct TestOnlyCommandBufferCmd : public CommandBufferCmd {
   BufferUsageVector buffers() override { return buffer_usage; }
 
   BufferUsageVector buffer_usage;
+};
+
+class FakeCmd : public CommandBufferCmd {
+ public:
+  FakeCmd(ExecutionStreamId execution_stream_id)
+      : CommandBufferCmd(CommandBufferCmdType::kTracedCommandBufferCmd,
+                         execution_stream_id) {}
+
+  absl::Status Record(const Thunk::ExecuteParams& execute_params,
+                      const RecordParams& record_params,
+                      se::CommandBuffer* command_buffer) override {
+    return absl::OkStatus();
+  }
+  BufferUsageVector buffers() override { return BufferUsageVector{}; }
 };
 
 TEST(CommandBufferCmdTest, SerializeExecution) {
@@ -219,7 +235,7 @@ TEST(CommandBufferCmdTest, MemcpyCmd) {
   TF_ASSERT_OK(commands.Record(params, record_params, command_buffer.get()));
 
   // Execute command buffer and verify that it copied the memory.
-  TF_ASSERT_OK(executor->Submit(stream.get(), *command_buffer));
+  TF_ASSERT_OK(command_buffer->Submit(stream.get()));
 
   // Copy `b` data back to host.
   std::vector<int32_t> dst(4, 0);
@@ -229,6 +245,8 @@ TEST(CommandBufferCmdTest, MemcpyCmd) {
 }
 
 TEST(CommandBufferCmdTest, BarrierCmd) {
+  // This test covers both CUDA version < 12040 (use empty kernel node as
+  // barrier node) and >=12040 (use cuda graph empty node as barrier node).
   se::StreamExecutor* executor = GpuExecutor();
 
   auto stream = executor->CreateStream().value();
@@ -288,7 +306,7 @@ TEST(CommandBufferCmdTest, BarrierCmd) {
   TF_ASSERT_OK(commands.Record(params, record_params, command_buffer.get()));
 
   // Execute command buffer and verify that it copied the memory.
-  TF_ASSERT_OK(executor->Submit(stream.get(), *command_buffer));
+  TF_ASSERT_OK(command_buffer->Submit(stream.get()));
 
   // Copy data back to host, correct executor order should populate all buffers
   // with expected value.
@@ -366,7 +384,7 @@ TEST(CommandBufferCmdTest, LaunchCmd) {
   TF_ASSERT_OK(commands.Record(params, record_params, command_buffer.get()));
 
   // Execute command buffer and verify that it copied the memory.
-  TF_ASSERT_OK(executor->Submit(stream.get(), *command_buffer));
+  TF_ASSERT_OK(command_buffer->Submit(stream.get()));
 
   // Copy `b` data back to host.
   std::vector<int32_t> dst(4, 0);
@@ -402,6 +420,7 @@ TEST(TracedCommandBuffer, GetOrUpdateCommandBuffer) {
     se::StreamExecutor* executor = GpuExecutor();
 
     auto stream = executor->CreateStream().value();
+    auto traced_cmd = FakeCmd(ExecutionStreamId(0));
     BufferAllocation alloc0(/*index=*/0, /*size=*/1024, /*color=*/0);
     BufferAllocation alloc1(/*index=*/1, /*size=*/1024, /*color=*/0);
 
@@ -409,7 +428,7 @@ TEST(TracedCommandBuffer, GetOrUpdateCommandBuffer) {
         {BufferAllocation::Slice(&alloc0, 0, 1024), MemoryAccess::kRead},
         {BufferAllocation::Slice(&alloc1, 0, 1024), MemoryAccess::kWrite}};
 
-    TracedCommandBuffer traced_cmd_buffer(buffers,
+    TracedCommandBuffer traced_cmd_buffer(&traced_cmd, buffers,
                                           /*capacity=*/trace_cache_size);
 
     se::DeviceMemoryBase mem0(reinterpret_cast<void*>(0x01234567));
@@ -511,7 +530,8 @@ static void BM_GetOrTraceCommandBuffer(benchmark::State& state) {
   };
 
   int32_t index = 0;
-  TracedCommandBuffer traced_cmd_buffer(buffers);
+  auto traced_cmd = FakeCmd(ExecutionStreamId(0));
+  TracedCommandBuffer traced_cmd_buffer(&traced_cmd, buffers);
 
   auto trace = [](se::Stream*) { return absl::OkStatus(); };
   absl::FunctionRef<absl::Status(se::Stream*)> trace_ref(trace);

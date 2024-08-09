@@ -222,12 +222,16 @@ class GatherDimensionNumbers:
   collapsed_slice_dims: list[int]
   start_index_map: list[int]
   index_vector_dim: int
+  operand_batching_dims: list[int]
+  start_indices_batching_dims: list[int]
 
 class ScatterDimensionNumbers:
   update_window_dims: list[int]
   inserted_window_dims: list[int]
   scatter_dims_to_operand_dims: list[int]
   index_vector_dim: int
+  input_batching_dims: list[int]
+  scatter_indices_batching_dims: list[int]
 
 class ReplicaGroup:
   replica_ids: list[int]
@@ -288,3 +292,5 @@ def register_custom_call_handler(
 def custom_call_targets(platform: str) -> dict[str, Any]: ...
 
 def encode_inspect_sharding_callback(handler: Any) -> bytes: ...
+
+register_custom_call_partitioner = _xla.register_custom_call_partitioner

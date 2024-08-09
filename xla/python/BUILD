@@ -3,10 +3,6 @@ load("@local_config_cuda//cuda:build_defs.bzl", "if_cuda")
 load("@local_config_rocm//rocm:build_defs.bzl", "if_rocm")
 load("@tsl//tsl/platform:build_config.bzl", "tf_proto_library")
 load("@tsl//tsl/platform:rules_cc.bzl", "cc_library")
-load(
-    "@tsl//tsl/platform/default:cuda_build_defs.bzl",
-    "if_cuda_is_configured",
-)
 load("//xla:pytype.default.bzl", "pytype_strict_library")
 load("//xla:strict.default.bzl", "py_strict_library", "py_strict_test")
 load(
@@ -259,17 +255,17 @@ cc_library(
     visibility = [":friends"],
     deps = [
         ":nb_class_ptr",
-        ":python_ref_manager",
         # placeholder for index annotation deps
+        "@com_google_absl//absl/base",
         "@com_google_absl//absl/container:inlined_vector",
         "@com_google_absl//absl/hash",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:str_format",
+        "@nanobind",
         "@local_config_python//:python_headers",  # buildcleaner: keep
         "//xla/pjrt:exceptions",
         "@tsl//tsl/platform",
         "@tsl//tsl/platform:logging",
-        "@nanobind",
     ],
 )
 
@@ -366,6 +362,11 @@ cc_library(
         "@com_google_absl//absl/time",
         "@com_google_absl//absl/types:span",
         "@com_google_absl//absl/types:variant",
+        "@llvm-project//llvm:Support",
+        "@llvm-project//mlir:IR",
+        "@llvm-project//mlir:Pass",
+        "@nanobind",
+        "@shardy//shardy/dialect/sdy/ir:dialect",
         "@local_config_python//:python_headers",  # buildcleaner: keep
         "//xla:comparison_util",
         "//xla:literal",
@@ -395,18 +396,24 @@ cc_library(
         "//xla/pjrt/distributed",
         "//xla/pjrt/distributed:client",
         "//xla/python/ifrt",
+        "//xla/python/ifrt:attribute_map",
         "//xla/python/ifrt:plugin_program",
         "//xla/python/ifrt:plugin_program_serdes",
         "//xla/python/ifrt/hlo:hlo_program",
         "//xla/python/pjrt_ifrt",
+        "//xla/python/pjrt_ifrt:pjrt_attribute_map_util",
         "//xla/python/pjrt_ifrt:xla_host_callback_proto_cc",
         "//xla/python/pjrt_ifrt:xla_ifrt",
         "//xla/service:computation_placer_hdr",
         "//xla/service:custom_call_status",
         "//xla/service:custom_call_target_registry",
         "//xla/service:platform_util",
+        "//xla/service/spmd/shardy:constants",
+        "//xla/service/spmd/shardy:utils",
+        "//xla/service/spmd/shardy/sdy_round_trip:pipelines",
         "//xla/tsl/concurrency:ref_count",
         "//xla/tsl/framework:allocator",
+        "//xla/tsl/framework/mlir:status_scoped_diagnostic_handler",
         "//xla/tsl/python/lib/core:numpy",
         "@tsl//tsl/platform:casts",
         "@tsl//tsl/platform:errors",
@@ -418,9 +425,6 @@ cc_library(
         "@tsl//tsl/profiler/lib:profiler_session",
         "@tsl//tsl/profiler/lib:traceme",
         "@tsl//tsl/profiler/protobuf:profiled_instructions_proto_cc",
-        "@llvm-project//llvm:Support",
-        "@llvm-project//mlir:IR",
-        "@nanobind",
     ] + if_cuda([
         "@local_config_cuda//cuda:cuda_headers",
         # TODO(b/324133505): remove this dependency after JAX OSS migrates to cuda plugin.
@@ -494,6 +498,7 @@ cc_library(
         "//xla/pjrt:host_callback",
         "//xla/service:custom_call_status",
         "@com_google_absl//absl/base",
+        "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
         "@nanobind",
         "@tsl//tsl/platform:errors",
@@ -572,12 +577,12 @@ cc_library(
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:str_format",
         "@com_google_absl//absl/types:span",
+        "@nanobind",
         "@local_config_python//:python_headers",  # build_cleaner: keep
         "//xla/pjrt:pjrt_client",
         "//xla/pjrt:status_casters",
         "@tsl//tsl/platform:logging",
         "@tsl//tsl/profiler/lib:traceme",
-        "@nanobind",
     ],
 )
 
@@ -637,6 +642,7 @@ cc_library(
         # placeholder for index annotation deps
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
+        "@nanobind",
         "//xla:shape_util",
         "//xla:util",
         "//xla/hlo/ir:hlo",
@@ -647,7 +653,6 @@ cc_library(
         "//xla/pjrt/c:pjrt_c_api_helpers",
         "@tsl//tsl/platform:logging",
         "@tsl//tsl/platform:statusor",
-        "@nanobind",
     ],
 )
 
@@ -667,6 +672,7 @@ cc_library(
         ":types",
         # placeholder for index annotation deps
         "@com_google_absl//absl/types:span",
+        "@nanobind",
         "//xla:xla_data_proto_cc",
         "//xla/client:xla_builder",
         "//xla/client:xla_computation",
@@ -680,7 +686,6 @@ cc_library(
         "//xla/client/lib:sorting",
         "//xla/client/lib:svd",
         "//xla/pjrt:status_casters",
-        "@nanobind",
     ],
 )
 
@@ -747,6 +752,7 @@ cc_library(
         "@com_google_absl//absl/strings:str_format",
         "@com_google_absl//absl/synchronization",
         "@com_google_absl//absl/types:span",
+        "@nanobind",
         "@local_config_python//:python_headers",  # buildcleaner: keep
         "//xla:util",
         "//xla/pjrt:exceptions",
@@ -760,7 +766,6 @@ cc_library(
         "@tsl//tsl/platform:logging",
         "@tsl//tsl/platform:statusor",
         "@tsl//tsl/profiler/lib:traceme",
-        "@nanobind",
     ],
 )
 
@@ -795,6 +800,7 @@ cc_library(
         "@com_google_absl//absl/strings:str_format",
         "@com_google_absl//absl/synchronization",
         "@com_google_absl//absl/types:span",
+        "@nanobind",
         "@local_config_python//:python_headers",  # buildcleaner: keep
         "//xla:status_macros",
         "//xla:util",
@@ -808,7 +814,6 @@ cc_library(
         "@tsl//tsl/platform:logging",
         "@tsl//tsl/platform:statusor",
         "@tsl//tsl/profiler/lib:traceme",
-        "@nanobind",
     ],
 )
 
@@ -853,6 +858,8 @@ cc_library(
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/synchronization",
+        "@llvm-project//llvm:Support",
+        "@nanobind",
         "//xla:literal",
         "//xla/client:executable_build_options",
         "//xla/client:xla_builder",
@@ -860,8 +867,6 @@ cc_library(
         "//xla/python/ifrt",
         "//xla/python/pjrt_ifrt",
         "@tsl//tsl/platform:logging",
-        "@llvm-project//llvm:Support",
-        "@nanobind",
     ],
 )
 
@@ -910,10 +915,10 @@ cc_library(
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:str_format",
         "@com_google_absl//absl/types:span",
+        "@nanobind",
         "@local_config_python//:python_headers",  # buildcleaner: keep
         "//xla/pjrt:exceptions",
         "@tsl//tsl/platform:logging",
-        "@nanobind",
     ],
 )
 
@@ -932,17 +937,6 @@ cc_library(
         # placeholder for index annotation deps
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
-        "//xla/client:xla_computation",
-        "//xla/mlir/utils:error_util",
-        "//xla/mlir_hlo",
-        "//xla/mlir_hlo:all_passes",
-        "//xla/pjrt:mlir_to_hlo",
-        "//xla/pjrt:status_casters",
-        "//xla/service/llvm_ir:llvm_util",
-        "//xla/translate/hlo_to_mhlo:hlo_to_mlir_hlo",
-        "@tsl//tsl/platform:errors",
-        "@tsl//tsl/platform:logging",
-        "@tsl//tsl/platform:statusor",
         "@llvm-project//llvm:Support",
         "@llvm-project//mlir:BytecodeWriter",
         "@llvm-project//mlir:FuncDialect",
@@ -957,6 +951,17 @@ cc_library(
         "@stablehlo//:chlo_ops",
         "@stablehlo//:stablehlo_ops",
         "@stablehlo//:stablehlo_serialization",
+        "//xla/client:xla_computation",
+        "//xla/mlir/utils:error_util",
+        "//xla/mlir_hlo",
+        "//xla/mlir_hlo:all_passes",
+        "//xla/pjrt:mlir_to_hlo",
+        "//xla/pjrt:status_casters",
+        "//xla/service/llvm_ir:llvm_util",
+        "//xla/translate/hlo_to_mhlo:hlo_to_mlir_hlo",
+        "@tsl//tsl/platform:errors",
+        "@tsl//tsl/platform:logging",
+        "@tsl//tsl/platform:statusor",
     ],
 )
 
@@ -966,6 +971,7 @@ cc_library(
     hdrs = ["refine_polymorphic_shapes.h"],
     deps = [
         "//xla/mlir/utils:error_util",
+        "//xla/mlir_hlo:stablehlo_extension_passes",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/strings",
         "@llvm-project//llvm:Support",
@@ -980,7 +986,6 @@ cc_library(
         "@stablehlo//:base",
         "@stablehlo//:chlo_ops",
         "@stablehlo//:stablehlo_ops",
-        "@stablehlo//stablehlo/experimental:experimental_stablehlo_passes",
         "@tsl//tsl/platform:errors",
         "@tsl//tsl/platform:logging",
     ],
@@ -1024,6 +1029,7 @@ cc_library(
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/types:span",
+        "@nanobind",
         "//xla/backends/profiler:profiler_backends",
         "//xla/backends/profiler/cpu:python_tracer",
         "//xla/backends/profiler/plugin:plugin_tracer",
@@ -1041,13 +1047,7 @@ cc_library(
         "@tsl//tsl/profiler/rpc:profiler_server_impl",
         "@tsl//tsl/profiler/rpc/client:capture_profile",
         "@tsl//tsl/profiler/rpc/client:profiler_client_impl",
-        "@nanobind",
-    ] + select({
-        ":gpu_enabled": [
-            "//xla/backends/profiler/gpu:device_tracer",
-        ],
-        "//conditions:default": [],
-    }),
+    ],
 )
 
 cc_library(
@@ -1065,8 +1065,8 @@ cc_library(
         # placeholder for index annotation deps
         "@com_google_absl//absl/functional:function_ref",
         "@com_google_absl//absl/status",
-        "//xla:util",
         "@nanobind",
+        "//xla:util",
     ],
 )
 
@@ -1108,8 +1108,8 @@ cc_library(
         "@com_google_absl//absl/container:node_hash_map",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/synchronization",
-        "//xla/pjrt:lru_cache",
         "@nanobind",
+        "//xla/pjrt:lru_cache",
     ],
 )
 
@@ -1139,6 +1139,7 @@ cc_library(
         "@com_google_absl//absl/strings:str_format",
         "@com_google_absl//absl/synchronization",
         "@com_google_absl//absl/types:span",
+        "@nanobind",
         "//xla:array",
         "//xla:debug_options_flags",
         "//xla:literal",
@@ -1174,7 +1175,6 @@ cc_library(
         "@tsl//tsl/platform:errors",
         "@tsl//tsl/platform:logging",
         "@tsl//tsl/platform:statusor",
-        "@nanobind",
     ],
 )
 
@@ -1182,26 +1182,6 @@ tf_proto_library(
     name = "py_host_callback_proto",
     srcs = ["py_host_callback.proto"],
     cc_api_version = 2,
-)
-
-# TODO(phawkins): the configuration settings here are overly confusing. The right fix is to split
-# xla_extension.so so that each backend is a separate plugin, however that must wait for a clean
-# ABI separation between devices.
-config_setting(
-    name = "link_gpu_plugin",
-    define_values = {"xla_python_enable_gpu": "true"},
-)
-
-bool_flag(
-    name = "enable_gpu",
-    build_setting_default = True,
-)
-
-config_setting(
-    name = "gpu_enabled",
-    flag_values = {
-        ":enable_gpu": "True",
-    },
 )
 
 # If this flag is enabled, it sets RPATH on the xla_extension to values that are suitable for
@@ -1216,17 +1196,6 @@ config_setting(
     flag_values = {
         ":jax_cuda_pip_rpaths": "True",
     },
-)
-
-# We cannot nest select and if_cuda_is_configured so we introduce
-# a standalone cc_library target.
-cc_library(
-    name = "gpu_plugin_deps",
-    deps = [
-        "//xla/service:gpu_plugin",
-    ] + if_cuda_is_configured([
-        "//xla/stream_executor:cuda_platform",
-    ]),
 )
 
 cc_library(
@@ -1279,8 +1248,8 @@ tsl_pybind_extension(
         ":logging",
         ":py_client",
         # placeholder for index annotation deps
-        "@local_config_python//:python_headers",  # buildcleaner: keep
         "@nanobind",
+        "@local_config_python//:python_headers",  # buildcleaner: keep
     ],
 )
 
@@ -1291,13 +1260,6 @@ tsl_pybind_extension(
         "-fexceptions",
         "-fno-strict-aliasing",
     ],
-    defines = if_google(
-        [],
-        select({
-            ":gpu_enabled": ["XLA_PYTHON_ENABLE_GPU=1"],
-            "//conditions:default": [],
-        }),
-    ),
     features = ["-use_header_modules"],
     linkopts = select({
         ":use_jax_cuda_pip_rpaths": [
@@ -1353,6 +1315,9 @@ tsl_pybind_extension(
         "@com_google_absl//absl/synchronization",
         "@com_google_absl//absl/time",
         "@com_google_absl//absl/types:span",
+        "@llvm-project//llvm:Support",
+        "@llvm-project//mlir:IR",
+        "@nanobind",
         "@local_config_python//:python_headers",  # buildcleaner: keep
         "//xla:literal",
         "//xla:shape_util",
@@ -1381,6 +1346,7 @@ tsl_pybind_extension(
         "//xla/python/ifrt:plugin_program_serdes",
         "//xla/python/ifrt_proxy/client:py_module",
         "//xla/python/pjrt_ifrt",
+        "//xla/python/pjrt_ifrt:pjrt_attribute_map_util",
         "//xla/python/pjrt_ifrt:xla_ifrt",
         "//xla/service/cpu:collectives_interface",
         "//xla/tsl/concurrency:ref_count",
@@ -1391,9 +1357,6 @@ tsl_pybind_extension(
         "@tsl//tsl/platform:status",
         "@tsl//tsl/platform:statusor",
         "@tsl//tsl/platform/cloud:gcs_file_system",
-        "@llvm-project//llvm:Support",
-        "@llvm-project//mlir:IR",
-        "@nanobind",
     ] + select({
         # gloo transport only builds on linux
         "//xla/tsl:macos": [],
@@ -1409,20 +1372,7 @@ tsl_pybind_extension(
         "//conditions:default": [
             "//xla/pjrt/cpu:mpi_collectives",
         ],
-    }) + if_google(
-        [],
-        select({
-            ":gpu_enabled": [
-                ":gpu_support",
-            ],
-            "//conditions:default": [],
-        }) + select({
-            ":link_gpu_plugin": [
-                ":gpu_plugin_deps",
-            ],
-            "//conditions:default": [],
-        }),
-    ),
+    }),
 )
 
 cc_library(

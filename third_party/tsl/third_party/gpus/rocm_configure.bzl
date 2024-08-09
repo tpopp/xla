@@ -205,6 +205,8 @@ def _rocm_include_path(repository_ctx, rocm_config, bash_bin):
     inc_dirs.append(rocm_toolkit_path + "/llvm/lib/clang/17.0.0/include")
     inc_dirs.append(rocm_toolkit_path + "/llvm/lib/clang/17/include")
     inc_dirs.append(rocm_toolkit_path + "/llvm/lib/clang/18/include")
+    if int(rocm_config.rocm_version_number) >= 60200:
+        inc_dirs.append(rocm_toolkit_path + "/lib/llvm/lib/clang/18/include")
 
     # Support hcc based off clang 10.0.0 (for ROCm 3.3)
     inc_dirs.append(rocm_toolkit_path + "/hcc/compiler/lib/clang/10.0.0/include/")
@@ -707,6 +709,7 @@ def _create_local_rocm_repository(repository_ctx):
         "-DTENSORFLOW_USE_ROCM=1",
         "-D__HIP_PLATFORM_AMD__",
         "-DEIGEN_USE_HIP",
+        "-DUSE_ROCM",
     ])
 
     rocm_defines["%{host_compiler_path}"] = "clang/bin/crosstool_wrapper_driver_is_not_gcc"
@@ -761,6 +764,8 @@ def _create_local_rocm_repository(repository_ctx):
             "%{miopen_version_number}": rocm_config.miopen_version_number,
             "%{hipruntime_version_number}": rocm_config.hipruntime_version_number,
             "%{hipblaslt_flag}": have_hipblaslt,
+            "%{hip_soversion_number}": "6" if int(rocm_config.rocm_version_number) >= 60000 else "5",
+            "%{rocblas_soversion_number}": "4" if int(rocm_config.rocm_version_number) >= 60000 else "3",
         },
     )
 

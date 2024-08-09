@@ -24,31 +24,30 @@ limitations under the License.
 #include "absl/container/flat_hash_map.h"
 #include "absl/container/inlined_vector.h"
 #include "absl/log/check.h"
+#include "absl/status/status.h"
 #include "absl/types/span.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
-#include "mlir/Dialect/Func/IR/FuncOps.h"  // from @llvm-project
-#include "mlir/Dialect/Tensor/IR/Tensor.h"  // from @llvm-project
-#include "mlir/IR/AffineExpr.h"  // from @llvm-project
-#include "mlir/IR/AffineMap.h"  // from @llvm-project
-#include "mlir/IR/BuiltinTypes.h"  // from @llvm-project
-#include "mlir/IR/ImplicitLocOpBuilder.h"  // from @llvm-project
-#include "mlir/IR/MLIRContext.h"  // from @llvm-project
-#include "mlir/IR/TypeRange.h"  // from @llvm-project
-#include "mlir/IR/Value.h"  // from @llvm-project
-#include "mlir/IR/ValueRange.h"  // from @llvm-project
-#include "mlir/Support/LLVM.h"  // from @llvm-project
+#include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/Tensor/IR/Tensor.h"
+#include "mlir/IR/AffineExpr.h"
+#include "mlir/IR/AffineMap.h"
+#include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/ImplicitLocOpBuilder.h"
+#include "mlir/IR/MLIRContext.h"
+#include "mlir/IR/TypeRange.h"
+#include "mlir/IR/Value.h"
+#include "mlir/IR/ValueRange.h"
+#include "mlir/Support/LLVM.h"
 #include "xla/hlo/ir/hlo_computation.h"
 #include "xla/hlo/ir/hlo_instruction.h"
 #include "xla/hlo/ir/hlo_instructions.h"
-#include "xla/hlo/ir/hlo_opcode.h"
-#include "xla/mlir/utils/type_util.h"
 #include "xla/permutation_util.h"
 #include "xla/primitive_util.h"
 #include "xla/service/gpu/fusions/fusion_emitter.h"
+#include "xla/service/gpu/fusions/ir/xla_gpu_ops.h"
 #include "xla/service/gpu/fusions/mlir/computation_partitioner.h"
 #include "xla/service/gpu/fusions/mlir/elemental_hlo_to_mlir.h"
-#include "xla/service/gpu/fusions/mlir/ir/xla_gpu_ops.h"
 #include "xla/service/gpu/fusions/mlir/type_util.h"
 #include "xla/service/gpu/hlo_fusion_analysis.h"
 #include "xla/service/gpu/ir_emission_utils.h"
@@ -72,8 +71,6 @@ using mlir::Value;
 using mlir::ValueRange;
 using mlir::func::FuncOp;
 using mlir::func::ReturnOp;
-using mlir::tensor::ExtractOp;
-using mlir::tensor::InsertOp;
 using mlir_converter::ApplyIndexing;
 
 constexpr int kNumRows = 4;
@@ -99,6 +96,11 @@ MlirTransposeFusion::MlirTransposeFusion(const HloFusionAnalysis& analysis)
       transposes_to_tile.insert(&hero.instruction());
       shmem_transpose_roots_.push_back(&root.instruction());
       int size = primitive_util::ByteWidth(hero.shape().element_type());
+      // If the last dimension stays the same, we need to make it part of the
+      // shared memory tile.
+      if (MostMinorDimensionUnchanged()) {
+        size *= input_shape_.back();
+      }
       max_element_bytes = std::max(max_element_bytes, size);
       shmem_usage += kBaseBlockSize * (kBaseBlockSize + 1) * size;
       shmem_transpose_root_indices_.push_back(index);
@@ -113,8 +115,12 @@ MlirTransposeFusion::MlirTransposeFusion(const HloFusionAnalysis& analysis)
   auto compute_block_sizes = [this](int vector_size) {
     vector_size_ = vector_size;
     block_size_ = kBaseBlockSize * vector_size_;
-    block_sizes_ = {1, 1, block_size_};
-    block_sizes_[permutation_[2]] = block_size_;
+    if (MostMinorDimensionUnchanged()) {
+      block_sizes_ = {block_size_, block_size_, input_shape_.back()};
+    } else {
+      block_sizes_ = {1, 1, block_size_};
+      block_sizes_[permutation_[2]] = block_size_;
+    }
     block_counts_ = {CeilOfRatio(input_shape_[0], block_sizes_[0]),
                      CeilOfRatio(input_shape_[1], block_sizes_[1]),
                      CeilOfRatio(input_shape_[2], block_sizes_[2])};
@@ -137,6 +143,10 @@ MlirTransposeFusion::MlirTransposeFusion(const HloFusionAnalysis& analysis)
         shmem_usage * elems_per_thread <= device.shared_memory_per_block();
     bool aligned_dims = (input_shape_[2] % vec_size == 0) &&
                         (input_shape_[permutation_[2]] % vec_size == 0);
+    if (MostMinorDimensionUnchanged()) {
+      aligned_dims =
+          input_shape_[0] % vec_size == 0 && input_shape_[1] % vec_size == 0;
+    }
     if (enough_work && enough_shmem && aligned_dims) {
       compute_block_sizes(vec_size);
       break;
@@ -146,8 +156,9 @@ MlirTransposeFusion::MlirTransposeFusion(const HloFusionAnalysis& analysis)
 
 std::optional<IndexingMap> MlirTransposeFusion::ComputeThreadIdToOutputIndexing(
     int64_t root_index, MLIRContext* mlir_context) const {
-  const auto& hero = analysis_.fusion_hero(root_index);
-  if (hero.opcode() != HloOpcode::kTranspose) {
+  const auto& hero = analysis_.fusion_hero(root_index).instruction();
+  if (!GetDescriptionForTiledTransposeEmitter(
+          analysis_.fusion_root(root_index).instruction(), hero)) {
     // The shape of non-transpose roots are bitcast compatible with the input
     // shape of transpose heroes.
     auto map = ComposeIndexingMaps(
@@ -164,7 +175,8 @@ std::optional<IndexingMap> MlirTransposeFusion::ComputeThreadIdToInputIndexing(
     int64_t root_index, int64_t hero_operand_index,
     MLIRContext* mlir_context) const {
   const auto& hero = analysis_.fusion_hero(root_index).instruction();
-  if (hero.opcode() != HloOpcode::kTranspose) {
+  if (!GetDescriptionForTiledTransposeEmitter(
+          analysis_.fusion_root(root_index).instruction(), hero)) {
     auto map = ComposeIndexingMaps(
         *ComputeThreadIdToOutputIndexing(root_index, mlir_context),
         *ComputeOutputToInputIndexing(
@@ -186,6 +198,13 @@ IndexingMap MlirTransposeFusion::GetSharedMemoryIndexing(
     bool read, mlir::MLIRContext* ctx) const {
   auto thread_offsets =
       Permute(GetThreadOffsets(ctx), read ? Vector3{0, 1, 2} : permutation_);
+  if (MostMinorDimensionUnchanged()) {
+    return {mlir::AffineMap::get(6, 3, thread_offsets, ctx),
+            DimVarsFromTensorSizes({kNumThreadsPerBlock, 1, 1, 1, 1, 1}),
+            RangeVarsFromTensorSizes(
+                {block_size_ / kNumRows, vector_size_, input_shape_[2]}),
+            {}};
+  }
   return {mlir::AffineMap::get(6, 2, thread_offsets, ctx),
           DimVarsFromTensorSizes({kNumThreadsPerBlock, 1, 1, 1, 1, 1}),
           RangeVarsFromTensorSizes({block_size_ / kNumRows, vector_size_}),
@@ -201,7 +220,11 @@ MlirTransposeFusion::WriteResult MlirTransposeFusion::EmitWriteToShMemMlir(
   MLIRContext* ctx = builder.getContext();
   auto shmem_tensor_size = block_sizes_;
   // Avoid bank conflicts.
-  ++shmem_tensor_size.back();
+  if (MostMinorDimensionUnchanged()) {
+    ++shmem_tensor_size[1];
+  } else {
+    ++shmem_tensor_size.back();
+  }
 
   // Allocate shared memory.
   SmallVector<Value> inits;
@@ -235,8 +258,8 @@ MlirTransposeFusion::WriteResult MlirTransposeFusion::EmitWriteToShMemMlir(
           root_computation, transpose,
           /*operand_index=*/0, input_indices(transpose->operand(0)),
           call_target_provider, entry_function, builder)[0];
-      result_tensors.push_back(
-          builder.create<InsertOp>(result_scalar, output, shmem_indices));
+      result_tensors.push_back(builder.create<mlir::tensor::InsertOp>(
+          result_scalar, output, shmem_indices));
     }
 
     // Produce all side outputs and then write them.
@@ -245,17 +268,18 @@ MlirTransposeFusion::WriteResult MlirTransposeFusion::EmitWriteToShMemMlir(
     auto* root_tuple = fusion.fused_expression_root();
     for (auto root : side_output_roots_) {
       side_output_indices.push_back(input_indices(root));
-      side_outputs.append(mlir_converter::ProvideParameter(
+      ValueRange param_values = mlir_converter::ProvideParameter(
           root_computation, root_tuple, root_tuple->operand_index(root),
           side_output_indices.back(), call_target_provider, entry_function,
-          builder));
+          builder);
+      side_outputs.append(param_values.begin(), param_values.end());
     }
 
     for (const auto& [value, indices, output] :
          llvm::zip(side_outputs, side_output_indices,
                    output_tensors.take_back(side_output_roots_.size()))) {
       result_tensors.push_back(
-          builder.create<InsertOp>(value, output, indices));
+          builder.create<mlir::tensor::InsertOp>(value, output, indices));
     }
 
     return result_tensors;
@@ -303,7 +327,7 @@ void MlirTransposeFusion::EmitReadFromShMemMlir(
         for (auto [transpose, shmem] :
              llvm::zip(shmem_transposes_, written.shmem_tensors)) {
           transpose_values[transpose].push_back(
-              builder.create<ExtractOp>(shmem, shmem_indices));
+              builder.create<mlir::tensor::ExtractOp>(shmem, shmem_indices));
         }
         llvm::SmallVector<Value> epilogue_indices = dim_values;
         absl::c_copy(symbol_values, std::back_inserter(epilogue_indices));
@@ -317,7 +341,7 @@ void MlirTransposeFusion::EmitReadFromShMemMlir(
                        shmem_transpose_root_indices_)) {
           llvm::SmallVector<Value> indices =
               ApplyIndexing(indexing, dim_values, symbol_values, builder);
-          results[root_index] = builder.create<InsertOp>(
+          results[root_index] = builder.create<mlir::tensor::InsertOp>(
               result_scalars.at(root).front(), results[root_index], indices);
         }
         return results;
@@ -369,6 +393,10 @@ llvm::SmallVector<mlir::AffineExpr, 4> MlirTransposeFusion::GetThreadOffsets(
   auto vector = mlir::getAffineSymbolExpr(1, ctx);
   int loop_stride = block_size_ * kNumRows;
   auto linear_index = loop * loop_stride + thread * vector_size_ + vector;
+  if (MostMinorDimensionUnchanged()) {
+    auto minor_dim = mlir::getAffineSymbolExpr(2, ctx);
+    linear_index = linear_index * input_shape_[2] + minor_dim;
+  }
   return DelinearizeInBoundsIndex(linear_index, block_sizes_);
 }
 
@@ -385,11 +413,16 @@ IndexingMap MlirTransposeFusion::GetIndexing(bool input,
        llvm::zip(block_ids, block_sizes_, thread_offsets)) {
     offsets.push_back(block_id * block_size + thread);
   }
+  auto range_var_sizes =
+      std::vector<int64_t>{block_size_ / kNumRows, vector_size_};
+  if (MostMinorDimensionUnchanged()) {
+    range_var_sizes.push_back(input_shape_[2]);
+  }
   IndexingMap result{
-      mlir::AffineMap::get(6, 2, offsets, ctx),
+      mlir::AffineMap::get(6, range_var_sizes.size(), offsets, ctx),
       DimVarsFromTensorSizes(
           {kNumThreadsPerBlock, 1, 1, Product(block_counts_), 1, 1}),
-      RangeVarsFromTensorSizes({block_size_ / kNumRows, vector_size_}),
+      RangeVarsFromTensorSizes(range_var_sizes),
       {}};
   auto normalized_shape =
       input ? ShapeUtil::MakeShape(shape.element_type(), input_shape_)
@@ -402,6 +435,10 @@ IndexingMap MlirTransposeFusion::GetIndexing(bool input,
       ComposeIndexingMaps(result, GetBitcastMap(normalized_shape, shape, ctx));
   result.Simplify();
   return result;
+}
+
+bool MlirTransposeFusion::MostMinorDimensionUnchanged() const {
+  return permutation_.back() == permutation_.size() - 1;
 }
 
 }  // namespace gpu

@@ -16,6 +16,7 @@ load("//xla/tests:build_defs.bzl", "xla_test")
 load(
     "//xla/tsl:tsl.bzl",
     "if_google",
+    "if_macos",
 )
 
 # copybara:uncomment package(default_applicable_licenses = ["//tensorflow:license"])
@@ -63,6 +64,7 @@ cc_library(
         ":pjrt_c_api_helpers",
         ":pjrt_c_api_wrapper_impl",
         "//xla/ffi:execution_context",
+        "//xla/ffi:type_id_registry",
         "@com_google_absl//absl/status",
     ],
 )
@@ -226,10 +228,13 @@ cc_library(
 # PJRT CPU plugin.
 xla_cc_binary(
     name = "pjrt_c_api_cpu_plugin.so",
-    linkopts = [
-        "-Wl,--version-script,$(location :pjrt_c_api_cpu_version_script.lds)",
-        "-Wl,--no-undefined",
-    ],
+    linkopts = if_macos(
+        [],
+        [
+            "-Wl,--version-script,$(location :pjrt_c_api_cpu_version_script.lds)",
+            "-Wl,--no-undefined",
+        ],
+    ),
     linkshared = True,
     tags = [
         "noasan",
@@ -259,7 +264,8 @@ cc_library(
         ":pjrt_c_api_profiler_extension_hdrs",
         ":pjrt_c_api_stream_extension_hdrs",
         ":pjrt_c_api_wrapper_impl",
-        "//xla/backends/profiler/gpu:device_tracer",  # To register the GPU Tracers with the GPU Plugin".
+        "//xla/backends/profiler:profiler_backends",  # To register the Host Tracers for GPU Plugin.
+        "//xla/backends/profiler/gpu:device_tracer",  # To register the GPU Tracers with the GPU Plugin.
         "//xla/backends/profiler/plugin:plugin_tracer_impl",
         "//xla/backends/profiler/plugin:profiler_c_api_hdrs",
         "//xla/backends/profiler/plugin:profiler_error",
@@ -361,6 +367,7 @@ xla_test(
         ":pjrt_c_api_ffi_extension_hdrs",
         ":pjrt_c_api_gpu",
         ":pjrt_c_api_gpu_extension_hdrs",
+        ":pjrt_c_api_gpu_internal",
         ":pjrt_c_api_hdrs",
         ":pjrt_c_api_helpers",
         ":pjrt_c_api_test_base",
@@ -369,8 +376,10 @@ xla_test(
         "//xla:literal",
         "//xla:literal_util",
         "//xla:shape_util",
+        "//xla/client:client_library",
         "//xla/ffi:execution_context",
         "//xla/ffi:ffi_api",
+        "//xla/ffi:type_id_registry",
         "//xla/ffi/api:ffi",
         "//xla/pjrt:pjrt_common",
         "//xla/pjrt:pjrt_future",
@@ -399,13 +408,13 @@ xla_cc_test(
         "//xla/pjrt:pjrt_client",
         "//xla/pjrt:pjrt_common",
         "//xla/pjrt/distributed:in_memory_key_value_store",
+        "//xla/tsl/lib/core:status_test_util",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/time",
         "@com_google_googletest//:gtest_main",
-        "@tsl//tsl/lib/core:status_test_util",
         "@tsl//tsl/platform:status",
         "@tsl//tsl/platform:status_matchers",
         "@tsl//tsl/platform:statusor",

@@ -29,13 +29,14 @@ limitations under the License.
 #include "absl/container/flat_hash_map.h"
 #include "absl/container/inlined_vector.h"
 #include "absl/functional/any_invocable.h"
+#include "absl/log/check.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/types/span.h"
-#include "unsupported/Eigen/CXX11/Tensor"  // from @eigen_archive
-#include "mlir/IR/BuiltinOps.h"  // from @llvm-project
+#include "unsupported/Eigen/CXX11/Tensor"
+#include "mlir/IR/BuiltinOps.h"
 #include "xla/client/xla_computation.h"
 #include "xla/executable_run_options.h"
 #include "xla/hlo/ir/hlo_module.h"
@@ -207,15 +208,11 @@ class TfrtCpuDevice final : public PjRtDevice {
     return process_index() == client()->process_index();
   }
 
-  int local_hardware_id() const override {
-    return local_hardware_id_typed().value();
-  }
-
   PjRtLocalDeviceId local_device_id() const override {
-    return PjRtLocalDeviceId(local_hardware_id_typed().value());
+    return PjRtLocalDeviceId(local_hardware_id().value());
   }
 
-  PjRtLocalHardwareId local_hardware_id_typed() const override {
+  PjRtLocalHardwareId local_hardware_id() const override {
     return PjRtLocalHardwareId(description_.local_hardware_id());
   }
 
@@ -449,13 +446,13 @@ class TfrtCpuClient final : public PjRtClient {
   // Pointers to `owned_memory_spaces_`.
   std::vector<PjRtMemorySpace*> memory_spaces_;
 
-  // Thread pool for running PjRtClient tasks.
-  std::unique_ptr<tsl::thread::ThreadPool> pjrt_client_thread_pool_;
-  std::unique_ptr<AsyncWorkRunner> async_work_runner_;
-
   // TODO(zhangqiaorjc): Use tsl::compat::EigenHostContextThreadPool.
   std::unique_ptr<tsl::thread::ThreadPool> eigen_intraop_pool_;
   std::unique_ptr<Eigen::ThreadPoolDevice> eigen_intraop_device_;
+
+  // Thread pool for running PjRtClient tasks.
+  std::unique_ptr<tsl::thread::ThreadPool> pjrt_client_thread_pool_;
+  std::unique_ptr<AsyncWorkRunner> async_work_runner_;
 
   // Launching collectives are prone to deadlock when we use fixed-sized
   // threadpools since ExecuteHelper will block until all replicas reach the
@@ -592,7 +589,7 @@ class TfrtCpuExecutable final : public PjRtLoadedExecutable {
     }
     memory_stats.serialized_hlo_proto = proto->SerializeAsString();
     memory_stats.PopulateBufferStatsFromAllocations(
-        cpu_executable_.get()->GetAllocations());
+        cpu_executable_->GetAllocations());
     return memory_stats;
   }
 

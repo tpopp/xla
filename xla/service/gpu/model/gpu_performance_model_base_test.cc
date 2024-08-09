@@ -51,7 +51,7 @@ class GpuPerformanceModelBaseTest : public HloTestBase {
   // The reference times in the test cases below are measured
   // on A6000 by profiling the execution of the HLOs.
   se::DeviceDescription device_info_{TestGpuDeviceInfo::RTXA6000DeviceInfo()};
-  GpuHloCostAnalysis analysis_{options_, &device_info_};
+  GpuHloCostAnalysis analysis_{options_, device_info_};
 
   GpuPerformanceModelBaseTest() : HloTestBase() {}
 };
@@ -211,7 +211,7 @@ ENTRY entry_computation {
   TF_ASSERT_OK_AND_ASSIGN(auto module,
                           ParseAndReturnVerifiedModule(hlo_string));
 
-  auto fusion_analysis = AnalyzeFusion(
+  auto fusion_analysis = HloFusionAnalysis::Create(
       *module->entry_computation()->root_instruction(), device_info_);
   auto launch_dimensions =
       GpuPerformanceModelBase::EstimateFusionLaunchDimensions(fusion_analysis);
@@ -247,7 +247,7 @@ ENTRY e {
   TF_ASSERT_OK_AND_ASSIGN(auto module,
                           ParseAndReturnVerifiedModule(hlo_string));
 
-  auto fusion_analysis = AnalyzeFusion(
+  auto fusion_analysis = HloFusionAnalysis::Create(
       *module->entry_computation()->root_instruction(), device_info_);
   auto launch_dimensions =
       GpuPerformanceModelBase::EstimateFusionLaunchDimensions(fusion_analysis);
@@ -276,7 +276,7 @@ ENTRY e {
   TF_ASSERT_OK_AND_ASSIGN(auto module,
                           ParseAndReturnVerifiedModule(hlo_string));
 
-  auto fusion_analysis = AnalyzeFusion(
+  auto fusion_analysis = HloFusionAnalysis::Create(
       *module->entry_computation()->root_instruction(), device_info_);
   auto launch_dimensions =
       GpuPerformanceModelBase::EstimateFusionLaunchDimensions(fusion_analysis);

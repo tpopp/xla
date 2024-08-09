@@ -24,11 +24,12 @@ limitations under the License.
 #include <vector>
 
 #include "absl/status/statusor.h"
+#include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
-#include "llvm/ADT/SmallVector.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/Value.h"
+#include "xla/hlo/ir/backend_config.h"
 #include "xla/hlo/ir/hlo_instruction.h"
 #include "xla/hlo/ir/hlo_instructions.h"
 #include "xla/literal.h"
@@ -41,6 +42,9 @@ limitations under the License.
 namespace xla {
 namespace gpu {
 
+// <HLO computation fingerprint, serialized compiled object>.
+using BinaryMap = absl::flat_hash_map<std::string, std::string>;
+
 // If a dimensions is smaller than this, untiled transposition may be more
 // efficient.
 inline constexpr int64_t kMinDimensionToTransposeTiled = 16;
@@ -50,6 +54,10 @@ inline constexpr int64_t kMinDimensionToTransposeTiled = 16;
 // efficient.
 inline constexpr int64_t kMinDimensionToTransposeTiled2 = 8;
 inline constexpr int64_t kMinTotalDimensionsToTransposeTiled = 64 * 128;
+// As the amount of shared memory is limited, we need to make sure that we don't
+// detect 102 transposes that would require too much bytes for the most minor
+// dimension.
+inline constexpr int64_t kMaxBytesInMostMinorDimension = 8;
 
 // Matrix multiplication before the rewrite.
 bool IsMatrixMultiplication(const HloInstruction& dot);
@@ -95,12 +103,9 @@ extern const char* const kCusolverCholeskyCallTarget;
 // Returns true if `instr` is a non-strided slice.
 bool IsSliceWithUnitStrides(const HloInstruction* instr);
 
-// Returns true if `instr` is a slice instruction and produces a contiguous
-// slice.
+// Returns true if `instr` is a slice (or dynamic slice) instruction and
+// operates on a contiguous slice of the input buffer.
 bool IsContiguousSlice(const HloInstruction& instr);
-
-// Returns true if `sliced` is a contiguous slice of `orig`.
-bool IsContiguousSlice(const Shape& orig, const Shape& sliced);
 
 // Emits code to shuffle data between threads of a warp. This has the same
 // semantics as the PTX "shfl.sync.down" instruction but works for values that
@@ -124,21 +129,25 @@ absl::StatusOr<BufferAllocation::Slice> GetAllocationSlice(
     const BufferAssignment& buffer_assignment, const HloInstruction* instr,
     const ShapeIndex& index);
 
-// Returns whether 'fusion' can be emitted with the dynamic update slice
-// in-place emitter.
+// Returns whether the fusion represented by 'fusion_adaptor' can be emitted
+// with the dynamic update slice in-place emitter. If 'fusion_adaptor'
+// represents a single fusion computation, 'fusion' should provide the fusion
+// instruction corresponding to that fusion computation. 'get_allocation_slice'
+// is a callback for getting the allocated buffer slice, given an instruction
+// and a shape index. This is ignored in case 'fusion' is a nullptr.
 absl::StatusOr<bool> CanEmitFusedDynamicUpdateSliceInPlaceForGpu(
-    const HloFusionInstruction* fusion,
+    const HloFusionAdaptor& fusion_adaptor,
     std::function<absl::StatusOr<BufferAllocation::Slice>(
         const HloInstruction* instr, const ShapeIndex& index)>
         get_allocation_slice,
-    absl::Span<HloInstructionAdaptor const> roots);
+    const HloInstruction* fusion = nullptr);
 
 // Returns the dynamic-update-slice instructions defining the results of a
 // fusion node. A dynamic slice update is said to be "defining" of a result if
 // that result is the output of a dynamic slice update, or if that result is the
 // output of a bitcast of a dynamic slice update---since such bitcast may be
 // handled as a no-op.
-std::vector<const HloInstruction*> GetOutputDefiningDynamicUpdateSlices(
+std::vector<HloInstructionAdaptor> GetOutputDefiningDynamicUpdateSlices(
     absl::Span<HloInstructionAdaptor const> roots);
 
 // Returns the first hero instruction reachable from `instr` as root. Hero
@@ -237,6 +246,31 @@ class DenseDataIntermediate {
 
 absl::StatusOr<DenseDataIntermediate> LiteralToXlaFormat(
     const Literal& literal);
+
+// Returns a deterministic encoded string representation of the proto message.
+absl::StatusOr<std::string> GetProtoFingerprint(
+    const tsl::protobuf::MessageLite&);
+
+// Returns a deterministic encoded string representation of the backend config.
+template <typename ConfigType>
+absl::StatusOr<std::string> GetBackendConfigFingerprint(
+    const BackendConfigWrapper& wrapper) {
+  ConfigType proto;
+  TF_RETURN_IF_ERROR(wrapper.GetProto(&proto));
+  return GetProtoFingerprint(proto);
+}
+
+// Returns concatenated fingerprint of an HLO instruction without its backend
+// config and its backend config's deterministic fingerprint.
+template <typename ConfigType>
+absl::StatusOr<std::string> FingerprintWithBackendConfig(
+    const HloInstruction& hlo) {
+  TF_ASSIGN_OR_RETURN(const auto config, hlo.backend_config<ConfigType>());
+  TF_ASSIGN_OR_RETURN(const std::string fingerprint,
+                      GetProtoFingerprint(config));
+  return absl::StrCat(hlo.ToString(HloPrintOptions::Fingerprint()),
+                      ", backend_config_fingerprint=", fingerprint);
+}
 
 }  // namespace gpu
 }  // namespace xla

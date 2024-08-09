@@ -17,15 +17,18 @@ limitations under the License.
 #define XLA_SERVICE_CPU_RUNTIME_THUNK_EXECUTOR_H_
 
 #include <atomic>
+#include <cstddef>
 #include <cstdint>
 #include <limits>
+#include <new>
+#include <queue>
 #include <string>
+#include <type_traits>
 #include <vector>
 
 #include "absl/base/thread_annotations.h"
 #include "absl/container/fixed_array.h"
 #include "absl/container/inlined_vector.h"
-#include "absl/functional/any_invocable.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/synchronization/mutex.h"
@@ -35,6 +38,21 @@ limitations under the License.
 
 namespace xla::cpu {
 
+namespace internal {
+// Clang does not allow defining a nested struct with member initializer, as
+// a workaround we define a struct in internal namespace and create an alias.
+struct ThunkExecutorOptions {
+  // If all thunks in a sequence use buffers of size less than or equal to
+  // `execute_sequential_buffer_threshold`, we mark execution as sequential, as
+  // concurrency overheads will likely dominate the overall execution time.
+  size_t execute_sequential_buffer_threshold = 512;
+
+  // Use priority ready queue to execute nodes according to their priority. By
+  // default we use FIFO ready queue.
+  bool use_priority_ready_queue = false;
+};
+}  // namespace internal
+
 // A dataflow-style (run when ready) executor for a ThunkSequence that depends
 // on buffer uses to build a DAG defining execution order. At run time executes
 // thunks concurrently in a given thread pool.
@@ -43,12 +61,7 @@ class ThunkExecutor {
   using BufferUses = Thunk::BufferUses;
   using ResourceUses = Thunk::ResourceUses;
   using ExecuteEvent = Thunk::ExecuteEvent;
-
-  // It's up to the caller to provide the task runner that will execute tasks
-  // produced by the executor. It can be a simple inline executor that runs
-  // tasks on the same thread, or a runner backed by a thread pool.
-  using Task = absl::AnyInvocable<void()>;
-  using TaskRunner = absl::AnyInvocable<void(Task)>;
+  using Options = internal::ThunkExecutorOptions;
 
   // Nodes identified by their index in the captured ThunkSequence.
   using NodeId = int64_t;
@@ -58,11 +71,13 @@ class ThunkExecutor {
   ThunkExecutor(ThunkExecutor&&) = default;
   ThunkExecutor& operator=(ThunkExecutor&&) = default;
 
-  static absl::StatusOr<ThunkExecutor> Create(ThunkSequence thunk_sequence);
+  static absl::StatusOr<ThunkExecutor> Create(
+      ThunkSequence thunk_sequence, const Options& options = Options());
 
   // NodeDef defines an execution order for all thunks in a sequence.
   struct NodeDef {
     NodeId id = kInvalidNodeId;
+    int64_t priority = 0;
     std::vector<NodeId> in_edges;
     std::vector<NodeId> out_edges;
   };
@@ -73,8 +88,7 @@ class ThunkExecutor {
   //
   // Returned execute event becomes ready when all thunks completed execution.
   // If any of the thunks failed, the event will be in error state.
-  tsl::AsyncValueRef<ExecuteEvent> Execute(const Thunk::ExecuteParams& params,
-                                           TaskRunner runner = nullptr);
+  tsl::AsyncValueRef<ExecuteEvent> Execute(const Thunk::ExecuteParams& params);
 
   absl::Span<const NodeDef> nodes_defs() const { return nodes_defs_; }
   const NodeDef& node_def(NodeId id) const { return nodes_defs_[id]; }
@@ -89,69 +103,149 @@ class ThunkExecutor {
 
   bool is_sequential() const { return is_sequential_; }
 
- private:
-  using ReadyQueue = absl::InlinedVector<NodeId, 8>;
+  // A ready queue that executes nodes in FIFO order.
+  class FifoReadyQueue {
+   public:
+    explicit FifoReadyQueue(absl::Span<const NodeId> ready_nodes);
 
-  ThunkExecutor(ThunkSequence thunk_sequence, std::vector<NodeDef> nodes_defs);
+    void Push(NodeId id);
 
-  // At run time NodeDef instantiated as a Node with an atomic counter that
-  // drops to zero when all in_edges are ready.
-  struct Node {
-    NodeId id = kInvalidNodeId;
-    std::atomic<int64_t>* counter = nullptr;
-    const std::vector<NodeId>* out_edges = nullptr;
+    NodeId Pop();
+    FifoReadyQueue PopHalf();
+
+    size_t Size() const;
+    bool Empty() const;
+
+    FifoReadyQueue CreateEmptyReadyQueue() const;
+
+   private:
+    absl::InlinedVector<NodeId, 8> queue_;
+    size_t head_ = 0;
   };
 
-  // A struct to keep the state of a running executor.
+  // A ready queue that executes nodes sorted by NodeDef priority.
+  class PriorityReadyQueue {
+   public:
+    PriorityReadyQueue(absl::Span<const NodeDef> nodes_defs,
+                       absl::Span<const NodeId> ready_nodes);
+
+    void Push(NodeId id);
+
+    NodeId Pop();
+    PriorityReadyQueue PopHalf();
+
+    size_t Size() const;
+    bool Empty() const;
+
+    PriorityReadyQueue CreateEmptyReadyQueue() const;
+
+   private:
+    struct Compare {
+      bool operator()(NodeId a, NodeId b) const {
+        return nodes_defs[a].priority < nodes_defs[b].priority;
+      }
+      absl::Span<const NodeDef> nodes_defs;
+    };
+
+    using InlinedPriorityQueue =
+        std::priority_queue<NodeId, absl::InlinedVector<NodeId, 8>, Compare>;
+
+    absl::Span<const NodeDef> nodes_defs_;
+    InlinedPriorityQueue queue_;
+  };
+
+ private:
+  // Align all atomic counters to a cache line boundary to avoid false
+  // sharing between multiple worker threads.
+  static constexpr size_t kAtomicAlignment =
+#if defined(__cpp_lib_hardware_interference_size)
+      std::hardware_destructive_interference_size;
+#else
+      64;
+#endif
+
+  // A struct to keep the state of a running ThunkExecutor.
   struct ExecuteState {
-    ExecuteState(ThunkExecutor* executor, TaskRunner runner);
+    // At run time NodeDef instantiated as a Node with an atomic counter that
+    // drops to zero when all `in_edges` are ready.
+    struct Node {
+      explicit Node(const NodeDef& node_def);
+
+      alignas(kAtomicAlignment) std::atomic<int64_t> counter;
+      const std::vector<NodeId>* out_edges;
+    };
+
+    static_assert(std::is_trivially_destructible_v<Node>,
+                  "Node must be trivially destructible");
+
+    // We use indirection via NodeStorage to be able to allocate uninitialized
+    // memory and do not pay the cost of default initializing all nodes.
+    using NodeStorage = std::aligned_storage_t<sizeof(Node), alignof(Node)>;
+
+    ExecuteState(ThunkExecutor* executor, Thunk::TaskRunner* runner);
+
+    Node& node(NodeId id) { return *reinterpret_cast<Node*>(&nodes[id]); }
 
     ThunkExecutor* executor;
-    TaskRunner runner;
+    Thunk::TaskRunner* runner;
 
-    // Containers for nodes' pending counters and nodes themselves.
-    absl::FixedArray<std::atomic<int64_t>> counters;
-    absl::InlinedVector<Node, 32> nodes;
-
-    // We store the first error from failed thunks in `abort_status` and at the
-    // end of execution the executor forwards it via the `execute_event`.
-    std::atomic<bool> abort;
-    absl::Mutex abort_mutex;
-    absl::Status abort_status ABSL_GUARDED_BY(abort_mutex);
+    absl::FixedArray<NodeStorage> nodes;
+    tsl::AsyncValueRef<ExecuteEvent> execute_event;
 
     // Once the number of pending sink nodes drops to zero, the execution is
     // completed and we set `execute_event` as concrete or error.
-    std::atomic<int64_t> pending_sink_nodes;
-    tsl::AsyncValueRef<ExecuteEvent> execute_event;
+    alignas(kAtomicAlignment) std::atomic<int64_t> pending_sink_nodes;
+
+    // We store the first error from failed thunks in `abort_status` and at the
+    // end of execution the executor forwards it via the `execute_event`.
+    alignas(kAtomicAlignment) std::atomic<bool> abort;
+    absl::Mutex abort_mutex;
+    absl::Status abort_status ABSL_GUARDED_BY(abort_mutex);
   };
+
+  ThunkExecutor(ThunkSequence thunk_sequence, std::vector<NodeDef> nodes_defs,
+                const Options& options);
 
   // Executes thunks sequentially starting from the first thunk in the sequence.
   tsl::AsyncValueRef<ExecuteEvent> ExecuteSequential(
       const Thunk::ExecuteParams& params);
 
   // Resumes sequential thunk execution starting from the given index.
-  void ResumeExecuteSequential(int64_t index,
+  using ThunkIterator = typename ThunkSequence::iterator;
+  void ResumeExecuteSequential(ThunkIterator it,
                                const Thunk::ExecuteParams& params,
                                tsl::AsyncValueRef<ExecuteEvent> event);
 
   // Executes nodes in the ready queue with given thunk parameters.
+  template <typename ReadyQueue>
   void Execute(ExecuteState* state, const Thunk::ExecuteParams& params,
-               ReadyQueue ready_queue);
+               ReadyQueue ready_queue, Thunk::ExecuteSession::Lock lock);
+
+  // Splits ready queue starting from `start_index` into ThunkExecutor tasks and
+  // offloads them to the task runner.
+  template <typename ReadyQueue>
+  void SplitReadyQueue(ExecuteState* state, const Thunk::ExecuteParams& params,
+                       ReadyQueue& ready_queue, int64_t split_threshold);
 
   // Processes out edges of a completed `node` and updates `ready_queue` with
   // nodes that are ready to execute. If `event` is in error state, aborts the
   // execution and records the error status to forward it to the caller.
+  template <typename ReadyQueue>
   void ProcessOutEdges(ExecuteState* state,
                        tsl::AsyncValuePtr<Thunk::ExecuteEvent> node_event,
-                       Node& node, ReadyQueue& ready_queue);
+                       ExecuteState::Node& node, ReadyQueue& ready_queue);
 
-  // Runs a transitive reduction on the NodeDef graph to remove redundant edges.
-  // Returns the number of removed edges.
+  // Runs a transitive reduction on the NodeDef graph to remove redundant edges,
+  // and updates nodes priorities. Returns the number of removed edges.
   //
   // See: https://en.wikipedia.org/wiki/Transitive_reduction
-  int64_t TransitiveReduction();
+  int64_t RunTransitiveReductionAndUpdatePriorities();
 
   ThunkSequence thunk_sequence_;
+  Options options_;
+
+  int64_t num_thunks_;
+
   std::vector<NodeDef> nodes_defs_;
 
   std::vector<NodeId> source_;

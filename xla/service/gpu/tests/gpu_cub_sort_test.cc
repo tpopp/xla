@@ -24,7 +24,7 @@ limitations under the License.
 #include "xla/error_spec.h"
 #include "xla/hlo/ir/hlo_module.h"
 #include "xla/primitive_util.h"
-#include "xla/service/gpu/gpu_sort_rewriter.h"
+#include "xla/service/gpu/transforms/sort_rewriter.h"
 #include "xla/tests/hlo_test_base.h"
 #include "xla/xla_data.pb.h"
 #include "tsl/platform/statusor.h"
@@ -35,7 +35,7 @@ namespace {
 
 bool HloWasRewrittenToUseCubSort(const HloModule& module) {
   for (const auto& pass_metadata : module.metadata().proto().pass_metadata()) {
-    if (pass_metadata.pass_name() == "gpu-sort-rewriter") {
+    if (pass_metadata.pass_name() == "sort-rewriter") {
       return pass_metadata.module_changed();
     }
   }
@@ -46,11 +46,17 @@ bool HloWasRewrittenToUseCubSort(const HloModule& module) {
 
 class CubSortKeysTest : public HloTestBase,
                         public ::testing::WithParamInterface<
-                            std::tuple<PrimitiveType, bool, int>> {};
+                            std::tuple<PrimitiveType, bool, int>> {
+ public:
+  void SetUp() override {
+    HloTestBase::SetUp();
+    SortRewriter::SetSortSizeThresholdForTestingOnly(33000);
+  }
+};
 
 TEST_P(CubSortKeysTest, CompareToReference) {
   int batch_size = std::get<2>(GetParam());
-  int segment_size = GpuSortRewriter::SortSizeThreshold() / batch_size;
+  int segment_size = SortRewriter::SortSizeThreshold() / batch_size;
 
   const char* kHloTpl = R"(
 HloModule TestSortKeys
@@ -97,7 +103,7 @@ ENTRY m {
 })";
 
   int batch_size = std::get<2>(GetParam());
-  int segment_size = GpuSortRewriter::SortSizeThreshold() / batch_size;
+  int segment_size = SortRewriter::SortSizeThreshold() / batch_size;
   std::string hlo_str = absl::Substitute(
       kHloTpl,
       primitive_util::LowercasePrimitiveTypeName(std::get<0>(GetParam())),
@@ -128,11 +134,17 @@ INSTANTIATE_TEST_SUITE_P(
 class CubSortPairsTest
     : public HloTestBase,
       public ::testing::WithParamInterface<
-          std::tuple<PrimitiveType, PrimitiveType, bool, int>> {};
+          std::tuple<PrimitiveType, PrimitiveType, bool, int>> {
+ public:
+  void SetUp() override {
+    HloTestBase::SetUp();
+    SortRewriter::SetSortSizeThresholdForTestingOnly(33000);
+  }
+};
 
 TEST_P(CubSortPairsTest, CompareToReference) {
   int batch_size = std::get<3>(GetParam());
-  int segment_size = GpuSortRewriter::SortSizeThreshold() / batch_size;
+  int segment_size = SortRewriter::SortSizeThreshold() / batch_size;
 
   const char* kHloTpl = R"(
 HloModule TestSortPairs
@@ -204,7 +216,7 @@ ENTRY m {
 })";
 
   int batch_size = std::get<3>(GetParam());
-  int segment_size = GpuSortRewriter::SortSizeThreshold() / batch_size;
+  int segment_size = SortRewriter::SortSizeThreshold() / batch_size;
   std::string hlo_str = absl::Substitute(
       kHloTpl,
       primitive_util::LowercasePrimitiveTypeName(std::get<0>(GetParam())),

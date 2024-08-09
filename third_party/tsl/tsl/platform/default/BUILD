@@ -274,6 +274,7 @@ cc_library(
         "//tsl/platform:mutex",
         "//tsl/platform:types",
         "@com_google_absl//absl/base",
+        "@com_google_absl//absl/base:log_severity",
         "@com_google_absl//absl/strings",
     ],
 )
@@ -302,7 +303,6 @@ cc_library(
         "//tsl/platform",
         "//tsl/platform:macros",
         "//tsl/platform:thread_annotations",
-        "//tsl/platform:types",
         "@nsync//:nsync_cpp",
     ],
 )

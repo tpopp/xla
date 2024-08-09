@@ -27,12 +27,12 @@ limitations under the License.
 #include "absl/strings/str_format.h"
 #include "absl/time/time.h"
 #include "xla/debug_options_flags.h"
-#include "xla/pjrt/distributed/key_value_store_interface.h"
-#include "xla/pjrt/distributed/service.h"
 #include "xla/pjrt/pjrt_client.h"
 #include "xla/tests/filecheck.h"
+#include "xla/tools/multihost_hlo_runner/create_client.h"
+#include "xla/tsl/lib/core/status_test_util.h"
 #include "xla/tsl/util/command_line_flags.h"
-#include "tsl/lib/core/status_test_util.h"
+#include "xla/xla.pb.h"
 #include "tsl/platform/env.h"
 #include "tsl/platform/errors.h"
 #include "tsl/platform/file_system.h"
@@ -60,9 +60,9 @@ std::string GetHloPath(std::string file_name) {
 
 absl::StatusOr<std::unique_ptr<xla::PjRtClient>> GetPjRtClient() {
   if (IsTestingCpu()) {
-    return xla::FunctionalHloRunner::CreateHostClient();
+    return CreateHostClient();
   }
-  return xla::FunctionalHloRunner::CreateGpuClient({});
+  return CreateGpuClient({});
 }
 
 using FunctionalHloRunnerTest = ::testing::Test;
@@ -256,7 +256,7 @@ TEST_F(FunctionalHloRunnerTest, CanCompileWithoutHavingEnoughGpus) {
 
 // Name of the test binary.
 static const char* binary_name;
-constexpr int kNumNodes = 3;
+constexpr int kNumNodes = 2;
 
 TEST_F(FunctionalHloRunnerTest, ShardedAutotuningWorks) {
   if (IsTestingCpu()) {
@@ -308,13 +308,8 @@ absl::Status ShardedAutotuningWorksTestBody(const int node_id) {
                         env.kv_store->Get("gemm_fusion_autotuning_results_1_1",
                                           absl::Seconds(1)));
     CHECK(absl::StrContains(results1, "run_time"));
-    // First two nodes autotune two different fusions.
+    // The nodes autotune different fusions.
     CHECK_NE(results0, results1);
-    TF_ASSIGN_OR_RETURN(std::string results2,
-                        env.kv_store->Get("gemm_fusion_autotuning_results_1_2",
-                                          absl::Seconds(1)));
-    // Third node has nothing to autotune.
-    CHECK(!absl::StrContains(results2, "run_time"));
   }
   return absl::OkStatus();
 }
@@ -338,7 +333,7 @@ TEST_F(FunctionalHloRunnerTest, CanRunWithMockCollectives) {
       FunctionalHloRunner::ModuleArgumentMode::kUseZerosAsInput;
 
   TF_ASSERT_OK_AND_ASSIGN(std::unique_ptr<xla::PjRtClient> client,
-                          FunctionalHloRunner::CreateMockGpuClient(16));
+                          CreateMockGpuClient(16));
 
   TF_EXPECT_OK(FunctionalHloRunner::LoadAndRunAndDump(
       *client, debug_options, preproc_options, raw_compile_options,

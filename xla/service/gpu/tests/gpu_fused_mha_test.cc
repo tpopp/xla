@@ -89,6 +89,7 @@ class MultiHeadedAttentionTest : public GpuCodegenTest {
   DebugOptions GetDebugOptionsForTest() override {
     auto debug_options = HloTestBase::GetDebugOptionsForTest();
     debug_options.set_xla_gpu_enable_cudnn_fmha(true);
+    debug_options.clear_xla_gpu_enable_command_buffer();
     return debug_options;
   }
 
@@ -132,6 +133,45 @@ class MultiHeadedAttentionTest : public GpuCodegenTest {
 
     EXPECT_TRUE(
         LiteralTestUtil::Near(expected_result, actual_result, mha_error_spec_));
+
+    // Run FusedMHA/FuseMHABackward thunk through command buffer
+    DebugOptions debug_options = GetDebugOptionsForTest();
+    debug_options.add_xla_gpu_enable_command_buffer(DebugOptions::CUDNN);
+    debug_options.set_xla_gpu_graph_min_graph_size(1);
+    TF_ASSERT_OK_AND_ASSIGN(std::unique_ptr<HloModule> test_cmd_buffer_module,
+                            ParseAndReturnVerifiedModule(hlo_string));
+    test_cmd_buffer_module->mutable_config().set_debug_options(debug_options);
+    const Literal cmd_buffer_actual_result =
+        ExecuteAndTransfer(std::move(test_cmd_buffer_module), literals);
+    EXPECT_TRUE(LiteralTestUtil::Near(expected_result, cmd_buffer_actual_result,
+                                      mha_error_spec_));
+  }
+
+  void VerifyBackwardDeterminism(absl::string_view hlo_string,
+                                 const std::vector<Literal *> &literals,
+                                 bool force_deterministic = false) {
+    TF_ASSERT_OK_AND_ASSIGN(std::unique_ptr<HloModule> reference_module,
+                            ParseAndReturnVerifiedModule(hlo_string));
+    DebugOptions debug_options = GetDebugOptionsForTest();
+    debug_options.set_xla_gpu_enable_cudnn_fmha(true);
+    if (force_deterministic) {
+      debug_options.set_xla_gpu_exclude_nondeterministic_ops(true);
+    }
+    reference_module->mutable_config().set_debug_options(debug_options);
+    const Literal first_run_result =
+        ExecuteAndTransfer(reference_module->Clone(), literals);
+
+    const Literal second_run_result =
+        ExecuteAndTransfer(std::move(reference_module), literals);
+
+    ErrorSpec error_spec{1E-8, 1e-8};
+    if (force_deterministic) {
+      EXPECT_TRUE(LiteralTestUtil::Near(first_run_result, second_run_result,
+                                        error_spec));
+    } else {
+      EXPECT_FALSE(LiteralTestUtil::Near(first_run_result, second_run_result,
+                                         error_spec));
+    }
   }
 
   template <typename T>
@@ -353,8 +393,8 @@ class FlashAttentionBMMScaleCausalMaskSoftmaxBMM
   void TestImpl_Flash_Attention_BMM1_CausalMask_Softmax_BMM2() {
     if (skip_reason_) GTEST_SKIP() << *skip_reason_;
     if (GetDnnVersionInfoOrDefault(backend().default_stream_executor()) <
-        se::dnn::VersionInfo(8, 9, 4)) {
-      GTEST_SKIP() << "Flash Attention requires cuDNN >= 8.9.4.";
+        se::dnn::VersionInfo(9, 0, 0)) {
+      GTEST_SKIP() << "Flash Attention requires cuDNN >= 9.0.0.";
     }
     XlaBuilder builder(TestName());
     auto lhs_bmm1_literal =
@@ -374,8 +414,8 @@ class FlashAttentionBMMScaleCausalMaskSoftmaxBMM
   void TestImpl_Flash_Attention_Training_BMM1_CausalMask_Softmax_BMM2() {
     if (skip_reason_) GTEST_SKIP() << *skip_reason_;
     if (GetDnnVersionInfoOrDefault(backend().default_stream_executor()) <
-        se::dnn::VersionInfo(8, 9, 4)) {
-      GTEST_SKIP() << "Flash Attention requires cuDNN >= 8.9.4.";
+        se::dnn::VersionInfo(9, 0, 0)) {
+      GTEST_SKIP() << "Flash Attention requires cuDNN >= 9.0.0.";
     }
     XlaBuilder builder(TestName());
     auto lhs_bmm1_literal =
@@ -669,8 +709,8 @@ class FlashAttentionBMMScaleBiasSoftmaxBMM : public MultiHeadedAttentionTest {
   void TestImpl_Flash_Attention_BMM1_Bias_Softmax_BMM2() {
     if (skip_reason_) GTEST_SKIP() << *skip_reason_;
     if (GetDnnVersionInfoOrDefault(backend().default_stream_executor()) <
-        se::dnn::VersionInfo(8, 9, 4)) {
-      GTEST_SKIP() << "Flash Attention requires cuDNN >= 8.9.4.";
+        se::dnn::VersionInfo(9, 0, 0)) {
+      GTEST_SKIP() << "Flash Attention requires cuDNN >= 9.0.0.";
     }
     XlaBuilder builder(TestName());
     auto lhs_bmm1_literal =
@@ -691,8 +731,8 @@ class FlashAttentionBMMScaleBiasSoftmaxBMM : public MultiHeadedAttentionTest {
   void TestImpl_Flash_Attention_Training_BMM1_Bias_Softmax_BMM2() {
     if (skip_reason_) GTEST_SKIP() << *skip_reason_;
     if (GetDnnVersionInfoOrDefault(backend().default_stream_executor()) <
-        se::dnn::VersionInfo(8, 9, 4)) {
-      GTEST_SKIP() << "Flash Attention requires cuDNN >= 8.9.4.";
+        se::dnn::VersionInfo(9, 0, 0)) {
+      GTEST_SKIP() << "Flash Attention requires cuDNN >= 9.0.0.";
     }
     XlaBuilder builder(TestName());
     auto lhs_bmm1_literal =
@@ -716,9 +756,9 @@ class FlashAttentionBMMScaleBiasSoftmaxBMM : public MultiHeadedAttentionTest {
   void TestImpl_Flash_Attention_BMM1_Bias_Softmax_BMM2_Cross_Attention() {
     if (skip_reason_) GTEST_SKIP() << *skip_reason_;
     if (GetDnnVersionInfoOrDefault(backend().default_stream_executor()) <
-        se::dnn::VersionInfo(8, 9, 4)) {
+        se::dnn::VersionInfo(9, 0, 0)) {
       GTEST_SKIP() << "Flash Attention cross attention requires "
-                      "cuDNN >= 8.9.4.";
+                      "cuDNN >= 9.0.0.";
     }
     XlaBuilder builder(TestName());
     auto lhs_bmm1_literal =
@@ -740,10 +780,10 @@ class FlashAttentionBMMScaleBiasSoftmaxBMM : public MultiHeadedAttentionTest {
     if (skip_reason_) GTEST_SKIP() << *skip_reason_;
     auto cc = GetCudaComputeCapability();
     if (GetDnnVersionInfoOrDefault(backend().default_stream_executor()) <
-            se::dnn::VersionInfo(8, 9, 6) ||
+            se::dnn::VersionInfo(9, 0, 0) ||
         !cc.IsAtLeastHopper() || cc.minor != 0) {
       GTEST_SKIP()
-          << "Flash Attention dbias requires cuDNN >= 8.9.6 and Hopper arch.";
+          << "Flash Attention dbias requires cuDNN >= 9.0.0 and Hopper arch.";
     }
     XlaBuilder builder(TestName());
     auto lhs_bmm1_literal =
@@ -860,8 +900,8 @@ class FlashAttentionBMMScaleSoftmaxBMM : public MultiHeadedAttentionTest {
   void TestImpl_Flash_Attention_Training_BMM1_Softmax_BMM2() {
     if (skip_reason_) GTEST_SKIP() << *skip_reason_;
     if (GetDnnVersionInfoOrDefault(backend().default_stream_executor()) <
-        se::dnn::VersionInfo(8, 9, 4)) {
-      GTEST_SKIP() << "Flash Attention requires cuDNN >= 8.9.4.";
+        se::dnn::VersionInfo(9, 0, 0)) {
+      GTEST_SKIP() << "Flash Attention requires cuDNN >= 9.0.0.";
     }
     XlaBuilder builder(TestName());
     auto lhs_bmm1_literal =
@@ -878,6 +918,37 @@ class FlashAttentionBMMScaleSoftmaxBMM : public MultiHeadedAttentionTest {
         hlo_string,
         {&lhs_bmm1_literal, &rhs_bmm1_literal, &rhs_bmm2_literal, &do_literal},
         /*expected_num_fmha_calls=*/2);
+  }
+
+  template <typename T>
+  void TestImpl_Flash_Attention_Training_BMM1_Softmax_BMM2_Deterministic() {
+    if (skip_reason_) GTEST_SKIP() << *skip_reason_;
+    auto cc = GetCudaComputeCapability();
+    if (GetDnnVersionInfoOrDefault(backend().default_stream_executor()) <
+            se::dnn::VersionInfo(9, 0, 0) ||
+        !cc.IsAtLeastHopper() || cc.minor != 0) {
+      GTEST_SKIP() << "Flash Attention deterministic kernels requires cuDNN >= "
+                      "9.0.0 and Hopper arch.";
+    }
+    XlaBuilder builder(TestName());
+    auto lhs_bmm1_literal =
+        GetInput4DLiteral<T>({2, 6, 1024, 64}, {3, 2, 1, 0});
+    auto rhs_bmm1_literal =
+        GetInput4DLiteral<T>({2, 6, 64, 1024}, {3, 2, 1, 0});
+    auto rhs_bmm2_literal =
+        GetInput4DLiteral<T>({2, 6, 1024, 64}, {3, 2, 1, 0});
+    auto do_literal = GetInput4DLiteral<T>({2, 6, 1024, 64}, {3, 2, 1, 0});
+    std::string hlo_string = "";
+    hlo_string =
+        GetModuleFlash_Attention_Training_BMM1_Softmax_BMM2_HloString_BF16();  // NOLINT
+    VerifyBackwardDeterminism(
+        hlo_string,
+        {&lhs_bmm1_literal, &rhs_bmm1_literal, &rhs_bmm2_literal, &do_literal},
+        /*force_deterministic=*/true);
+    VerifyBackwardDeterminism(
+        hlo_string,
+        {&lhs_bmm1_literal, &rhs_bmm1_literal, &rhs_bmm2_literal, &do_literal},
+        /*force_deterministic=*/false);
   }
 };
 
@@ -1014,8 +1085,8 @@ class FlashAttentionBMMScalePaddingMaskSoftmaxBMM
   void TestImpl_Flash_Attention_Training_BMM1_PaddingMask_Softmax_BMM2() {
     if (skip_reason_) GTEST_SKIP() << *skip_reason_;
     if (GetDnnVersionInfoOrDefault(backend().default_stream_executor()) <
-        se::dnn::VersionInfo(8, 9, 3)) {
-      GTEST_SKIP() << "Flash Attention requires cuDNN >= 8.9.3.";
+        se::dnn::VersionInfo(9, 0, 0)) {
+      GTEST_SKIP() << "Flash Attention requires cuDNN >= 9.0.0.";
     }
     XlaBuilder builder(TestName());
     // pass padding mask as bias
@@ -1067,6 +1138,11 @@ XLA_TEST_F(FlashAttentionBMMScaleBiasSoftmaxBMM,
 XLA_TEST_F(FlashAttentionBMMScaleSoftmaxBMM,
            Flash_Attention_Training_BMM1_Softmax_BMM2_BF16) {
   TestImpl_Flash_Attention_Training_BMM1_Softmax_BMM2<bfloat16>();
+}
+
+XLA_TEST_F(FlashAttentionBMMScaleSoftmaxBMM,
+           Flash_Attention_Training_BMM1_Softmax_BMM2_Deterministic_BF16) {
+  TestImpl_Flash_Attention_Training_BMM1_Softmax_BMM2_Deterministic<bfloat16>();
 }
 
 // BMM1 - Scale - PaddingMask - Softmax - BMM2
