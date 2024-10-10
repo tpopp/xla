@@ -274,8 +274,8 @@ def ApplyIndexingOp : XLAGPU_Op<"apply_indexing", [Pure]> {
     OpBuilder<(ins "mlir::ValueRange":$operands,
                    "const IndexingMap&":$indexing_map)>,
     OpBuilder<(ins "mlir::ValueRange":$operands, "mlir::AffineMap":$affine_map,
-               "llvm::ArrayRef<DimVar>":$dim_vars,
-               "llvm::ArrayRef<RangeVar>":$range_vars)>,
+               "llvm::ArrayRef<IndexingMap::Variable>":$dim_vars,
+               "llvm::ArrayRef<IndexingMap::Variable>":$range_vars)>,
   ];
   let extraClassDeclaration = [{
     // Returns the indexing map constructed from IndexingMapAttr.
@@ -429,6 +429,7 @@ def XLAGPU_ReduceOp : XLAGPU_Op<"reduce", [
     }
     %sum:2 = xla_gpu.reduce (%in0, %in1) inits(%init0, %init1) dimensions=[0, 2]
       combiner=@add : tensor<16x8x4xf32>, tensor<16x8x4xi32>
+        to tensor<8xf32>, tensor<8xi32>
     ```
   }];
   let arguments = (ins

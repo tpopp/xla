@@ -66,8 +66,6 @@ std::string AutoShardingOption::ToString() const {
     lines.push_back(absl::StrCat("reduce_scatter_cost: ", reduce_scatter_cost));
   }
 
-  lines.push_back(absl::StrCat("force_batch_dim_to_mesh_dim: ",
-                               force_batch_dim_to_mesh_dim));
   lines.push_back(absl::StrCat("allow_replicated_parameters: ",
                                allow_replicated_parameters));
   lines.push_back(
@@ -84,8 +82,6 @@ std::string AutoShardingOption::ToString() const {
       absl::StrCat("allow_mixed_mesh_shape: ", allow_mixed_mesh_shape));
   lines.push_back(absl::StrCat("solve_nd_sharding_iteratively: ",
                                solve_nd_sharding_iteratively));
-  lines.push_back(
-      absl::StrCat("force_simple_heuristic: ", force_simple_heuristic));
   lines.push_back(absl::StrCat("force_strategy: ", force_strategy));
 
   if (force_strategy) {
