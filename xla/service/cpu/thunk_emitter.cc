@@ -733,7 +733,8 @@ absl::StatusOr<ThunkSequence> ThunkEmitter::EmitFusionKernelThunk(
     auto* mlir_kernel_source =
         tsl::down_cast<MlirKernelSource*>(kernel_source.get());
 
-    FusionCompiler compiler(FusionCompiler::Options{});
+    FusionCompiler compiler(FusionCompiler::Options{
+        hlo_module_config_.debug_options().xla_cpu_prefer_vector_width()});
     TF_ASSIGN_OR_RETURN(LlvmIrKernelSource llvm_ir_kernel_source,
                         compiler.Compile(std::move(*mlir_kernel_source)));
 
@@ -946,10 +947,11 @@ absl::StatusOr<ThunkSequence> ThunkEmitter::EmitDotThunk(
 
       if (use_xnn) {
         XnnDotThunk::Options options = {XnnShouldUseThreadPool(instruction)};
+        bool capture_rhs = HloPredicateIsOp<HloOpcode::kParameter>(rhs);
         return ThunkSequence::Of<XnnDotThunk>(
             std::move(options), ThunkInfo(instruction), dnums, lhs_slice,
             lhs->shape(), rhs_slice, rhs->shape(), out_slice,
-            instruction->shape());
+            instruction->shape(), capture_rhs);
       } else {
         return ThunkSequence::Of<DotThunk>(
             ThunkInfo(instruction), dnums, lhs_slice, lhs->shape(), rhs_slice,

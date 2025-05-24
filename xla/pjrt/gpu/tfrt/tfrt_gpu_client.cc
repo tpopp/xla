@@ -484,17 +484,8 @@ class TfrtGpuAsyncHostToDeviceTransferManager final
           buffer->AsShapedBuffer(device_shapes_[buffer_index], device_);
 
       auto stream = device_->stream();
-
-      GenericTransferManager::LiteralFromDeviceMetadata transfer_metadata;
-      // We never call device functions from the `done` callback.
-      transfer_metadata.callback_is_host_callback_safe = true;
-      TransferManager::TransferMetadata* transfer_metadata_ptr =
-          (dynamic_cast<GenericTransferManager*>(transfer_manager) != nullptr)
-              ? &transfer_metadata
-              : nullptr;
-
       TF_CHECK_OK(transfer_manager->TransferLiteralToDeviceAsync(
-          stream, literal, shaped_buffer, transfer_metadata_ptr));
+          stream, literal, shaped_buffer));
 
       absl::Status status = stream->BlockHostUntilDone();
       VLOG(3) << "Finish transfer h2d for literal with shape "
@@ -3391,7 +3382,7 @@ absl::StatusOr<PjRtLoadedExecutable::Result> TfrtGpuExecutable::ExecuteHelper(
   std::unique_ptr<Semaphore::ScopedReservation> compute_reservation;
   {
     tsl::profiler::TraceMe traceme_compute_reservation(
-        "TfrtGpuExecutable::ExecuteHelper::acquire_sempahore");
+        "TfrtGpuExecutable::ExecuteHelper::acquire_semaphore");
 
     VLOG(1) << "Trying to acquire semaphore for " << name() << " on device "
             << device->DebugString();
@@ -3778,7 +3769,8 @@ absl::StatusOr<PjRtLoadedExecutable::Result> TfrtGpuExecutable::ExecuteHelper(
         }
 
         VLOG(1) << "execute_fn for " << executable_name
-                << ", launch_id: " << launch_id
+                << ", launch_id: " << launch_id << ", replica=" << replica
+                << ", partition=" << partition
                 << ", device: " << device->DebugString()
                 << " is done with status " << status;
       };
