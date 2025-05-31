@@ -151,43 +151,6 @@ xla_cc_test(
 )
 
 cc_library(
-    name = "async_collective_annotator",
-    srcs = ["async_collective_annotator.cc"],
-    hdrs = ["async_collective_annotator.h"],
-    deps = [
-        "//xla:util",
-        "//xla/hlo/ir:hlo",
-        "//xla/hlo/pass:hlo_pass",
-        "//xla/hlo/utils:hlo_query",
-        "//xla/service/gpu:backend_configs_cc",
-        "@com_google_absl//absl/container:flat_hash_set",
-        "@com_google_absl//absl/status:statusor",
-        "@com_google_absl//absl/strings:string_view",
-        "@tsl//tsl/platform:errors",
-        "@tsl//tsl/platform:statusor",
-    ],
-)
-
-xla_cc_test(
-    name = "async_collective_annotator_test",
-    srcs = ["async_collective_annotator_test.cc"],
-    deps = [
-        ":async_collective_annotator",
-        "//xla:util",
-        "//xla/hlo/ir:hlo",
-        "//xla/hlo/testlib:hlo_hardware_independent_test_base",
-        "//xla/hlo/utils:hlo_query",
-        "//xla/service/gpu:backend_configs_cc",
-        "//xla/tests:test_macros_header",
-        "//xla/tests:xla_internal_test_main",
-        "@com_google_absl//absl/container:flat_hash_set",
-        "@com_google_absl//absl/strings",
-        "@com_google_googletest//:gtest",
-        "@tsl//tsl/platform:statusor",
-    ],
-)
-
-cc_library(
     name = "async_wrapper",
     srcs = ["async_wrapper.cc"],
     hdrs = ["async_wrapper.h"],
@@ -596,14 +559,12 @@ cc_library(
         "//xla/hlo/pass:hlo_pass",
         "//xla/service/gpu:ir_emission_utils",
         "//xla/stream_executor:device_description",
+        "//xla/tsl/platform:statusor",
         "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings:string_view",
-        "@tsl//tsl/platform:logging",
-        "@tsl//tsl/platform:status",
-        "@tsl//tsl/platform:statusor",
     ],
 )
 
@@ -698,14 +659,8 @@ cc_library(
 xla_test(
     name = "cudnn_fused_conv_rewriter_test",
     srcs = ["cudnn_fused_conv_rewriter_test.cc"],
-    backend_tags = {
-        "gpu_a100": [
-            "noasan",
-            "nomsan",
-        ],
-    },
     backends = [
-        "gpu_a100",
+        "gpu_h100",
         "gpu_amd_any",
     ] + if_oss(["gpu_any"]),
     shard_count = 10,
@@ -2209,6 +2164,7 @@ cc_library(
         "//xla/tsl/platform:logging",
         "//xla/tsl/platform:status",
         "//xla/tsl/platform:statusor",
+        "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/log:check",
@@ -2243,10 +2199,11 @@ xla_cc_test(
         "//xla/service/gpu/model:gpu_hlo_cost_analysis",
         "//xla/stream_executor:device_description",
         "//xla/tests:xla_internal_test_main",
+        "//xla/tsl/platform:env",
+        "//xla/tsl/platform:status_matchers",
+        "//xla/tsl/platform:statusor",
         "@com_google_absl//absl/strings:string_view",
         "@com_google_googletest//:gtest",
-        "@tsl//tsl/platform:status_matchers",
-        "@tsl//tsl/platform:statusor",
     ],
 )
 
@@ -2325,6 +2282,7 @@ cc_library(
         "//xla:shape_util",
         "//xla/hlo/ir:hlo",
         "//xla/hlo/pass:hlo_pass",
+        "//xla/tsl/platform:statusor",
         "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/container:inlined_vector",
@@ -2393,6 +2351,7 @@ cc_library(
         "//xla:util",
         "//xla/hlo/ir:hlo",
         "//xla/hlo/pass:hlo_pass",
+        "//xla/tsl/platform:statusor",
         "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/container:inlined_vector",
@@ -2976,6 +2935,7 @@ cc_library(
         "//xla/service:hlo_module_config",
         "//xla/service/gpu:reduction_utils",
         "//xla/stream_executor:device_description",
+        "//xla/tsl/platform:statusor",
         "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/container:inlined_vector",

@@ -26,6 +26,7 @@ limitations under the License.
 #include "xla/hlo/ir/hlo_instruction.h"
 #include "xla/service/compiler.h"
 #include "xla/stream_executor/stream_executor.h"
+#include "xla/xla.pb.h"
 
 namespace xla {
 namespace gpu {
@@ -47,9 +48,7 @@ class CustomKernelBackend : public GpuCodegenBackend {
       const HloInstruction& instr) override;
 
   absl::Status ApplyConfig(HloInstruction& instr,
-                           const BackendConfig& config) override {
-    return absl::UnimplementedError("Not implemented.");
-  }
+                           const BackendConfig& config) override;
 
  private:
   absl::StatusOr<std::unique_ptr<HloModule>> RunHloPasses(

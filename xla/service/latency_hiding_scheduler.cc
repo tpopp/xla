@@ -1274,8 +1274,8 @@ class ReadySetLt {
     if (sched_state_.config.aggressive_scheduling_policies) {
       // Favor nodes that unlock other nodes to be scheduled if possible.
       // This makes us more flexible in what we can use in scheduling.
-      int ready_if_a_scheduled = ReadyIfScheduled(*a.node);
-      int ready_if_b_scheduled = ReadyIfScheduled(*b.node);
+      int ready_if_a_scheduled = a.node->GetReadyNodesIfScheduled();
+      int ready_if_b_scheduled = b.node->GetReadyNodesIfScheduled();
       if (auto value = DefaultSchedulerCore::ChooseBestCandidate(
               ready_if_a_scheduled > ready_if_b_scheduled, a,
               ready_if_b_scheduled > ready_if_a_scheduled, b,
@@ -1304,15 +1304,6 @@ class ReadySetLt {
   DefaultSchedulerCore::OverlapLimitRule
       scheduling_instruction_crosses_overlap_limit_;
 
-  int ReadyIfScheduled(const HloGraphNode& gn) const {
-    int ready_nodes_if_scheduled = 0;
-    for (auto& pred : gn.GetPredecessors()) {
-      if (pred.Target().GetOutdegree() == 1) {
-        ++ready_nodes_if_scheduled;
-      }
-    }
-    return ready_nodes_if_scheduled;
-  }
   static bool IsNop(const HloGraphNode& gn) {
     return IsNopInstruction(gn.GetInstr());
   }
@@ -1728,6 +1719,20 @@ class AnnotationReadySetLt {
   DefaultSchedulerCore::CandidateResult operator()(
       DefaultSchedulerCore::ScheduleCandidate& a,
       DefaultSchedulerCore::ScheduleCandidate& b) const {
+    // Schedule based on the original sequence order if requested.
+    auto a_attr = a.node->GetInstr().get_frontend_attribute(
+        "keep_original_sequence_order_in_group");
+    auto b_attr = b.node->GetInstr().get_frontend_attribute(
+        "keep_original_sequence_order_in_group");
+    if (a_attr.has_value() && b_attr.has_value()) {
+      if (a_attr.value() == "true" && b_attr.value() == "true") {
+        return {a.node->GetOriginalPosition() > b.node->GetOriginalPosition()
+                    ? a
+                    : b,
+                "kOriginalSequenceOrder"};
+      }
+    }
+
     // Schedule an async done.
     if (auto value = DefaultSchedulerCore::ChooseBestCandidate(
             a.node->DoesOccupyAnyResource(), a, b.node->DoesOccupyAnyResource(),
@@ -1744,7 +1749,10 @@ class AnnotationReadySetLt {
   }
 };
 absl::StatusOr<HloGraphNode*> FindAndExtractBestAnnotatedNode(
-    DefaultSchedulerCore::SchedulingState& sched_state) {
+    DefaultSchedulerCore::SchedulingState& sched_state,
+    const std::function<bool(const DefaultSchedulerCore::SchedulingState&,
+                             HloGraphNode*)>&
+        scheduling_instruction_crosses_overlap_limit) {
   using ScheduleCandidate = DefaultSchedulerCore::ScheduleCandidate;
   using CandidateResult = DefaultSchedulerCore::CandidateResult;
   AnnotationReadySetLt ready_lt;
@@ -1757,6 +1765,14 @@ absl::StatusOr<HloGraphNode*> FindAndExtractBestAnnotatedNode(
   for (auto ready_node_it = annotation_ready.begin(),
             e = annotation_ready.end();
        ready_node_it != e; ++ready_node_it) {
+    HloGraphNode* ready_node = *ready_node_it;
+    // If this node would cause the max_concurrent_resource count to go beyond
+    // the limit do not schedule it and pass to the next node.
+    if (scheduling_instruction_crosses_overlap_limit(sched_state, ready_node)) {
+      VLOG(2) << "Skipping node (" << ready_node->GetInstr().name()
+              << ") Reason: scheduling instruction crosses overlap limit";
+      continue;
+    }
     ScheduleCandidate ready_candidate;
     ready_candidate.node = *ready_node_it;
     if (ready_chosen.node == nullptr) {
@@ -1830,8 +1846,10 @@ absl::Status DefaultSchedulerCore::ScheduleAnnotation(
     }());
     VLOG(2) << "Current time: " << sched_state->current_time;
     // Find the best annotated node to schedule.
-    TF_ASSIGN_OR_RETURN(HloGraphNode * node,
-                        FindAndExtractBestAnnotatedNode(*sched_state));
+    TF_ASSIGN_OR_RETURN(
+        HloGraphNode * node,
+        FindAndExtractBestAnnotatedNode(
+            *sched_state, scheduling_instruction_crosses_overlap_limit_));
 
     TF_RET_CHECK(node != nullptr)
         << "Couldn't find an annotated node to schedule.";
@@ -2220,6 +2238,14 @@ HloScheduleGraph::HloScheduleGraph(
         async_tracker->ReleasesSelectiveResource(new_node_it->second.get());
     new_node_it->second->occupies_selective_resource_ =
         async_tracker->OccupiesSelectiveResource(new_node_it->second.get());
+    new_node_it->second->does_occupy_any_resource_ = absl::c_any_of(
+        new_node_it->second->resources_, [](const ResourcePair& resource) {
+          return resource.second == ResourceUsageType::kResourceOccupy;
+        });
+    new_node_it->second->does_release_any_resource_ = absl::c_any_of(
+        new_node_it->second->resources_, [](const ResourcePair& resource) {
+          return resource.second == ResourceUsageType::kResourceRelease;
+        });
     // Gather while instructions for subsequent send-done dependency checks.
     if (instr->opcode() == HloOpcode::kWhile) {
       while_instrs.push_back(instr);
@@ -2338,6 +2364,10 @@ HloScheduleGraph::HloScheduleGraph(
         break;
       }
     }
+  }
+  // Initialize ready_nodes_if_scheduled_ for all nodes.
+  for (const auto& [_, node] : nodes_) {
+    node->UpdateReadyNodesIfScheduled();
   }
 }
 
@@ -2533,8 +2563,11 @@ DefaultSchedulerCore::GetNumResourcesNeededForAnnotation(
        annotation_tracker_->GetInstructions(comp, annotation)) {
     auto num_resources_needed_per_instr =
         sched_state.async_tracker->GetNumResourcesPerInstruction(*instr);
+    // The minimum number of resources needed for the annotation group is the
+    // maximum number of resources needed for any instruction in the group.
     for (const auto& [resource, usage] : num_resources_needed_per_instr) {
-      num_resources_needed[resource] += usage;
+      num_resources_needed[resource] =
+          std::max(num_resources_needed[resource], usage);
     }
   }
   return num_resources_needed;

@@ -294,6 +294,44 @@ TEST_F(LegalizeSchedulingAnnotationsTest, DropAnnotationFromBitcast) {
       bitcast->frontend_attributes().map().contains(kXlaSchedulingGroupIdAttr));
 }
 
+TEST_F(LegalizeSchedulingAnnotationsTest, DropAnnotationFromTrivialGroup) {
+  constexpr absl::string_view hlo_string = R"(
+  HloModule test
+  ENTRY entry {
+    p0 = f32[256,1024]{1,0} parameter(0)
+    p1 = f32[16,64,256]{2,1,0} parameter(1)
+    ags0 = (f32[256,1024]{1,0}, f32[1024,1024]{1,0}) all-gather-start(p0), replica_groups={{0,1,2,3}}, dimensions={0}, frontend_attributes={_scheduling_group_id="0"}
+    bitcast = f32[16,64,256]{2,1,0} bitcast(p1), frontend_attributes={_scheduling_group_id="1"}
+    copy = f32[16,64,256]{2,1,0} copy(bitcast), frontend_attributes={_scheduling_group_id="2"}
+    bitcast2 = f32[16,64,256]{2,1,0} bitcast(copy), frontend_attributes={_scheduling_group_id="3"}
+    bitcast3 = f32[16,64,256]{2,1,0} bitcast(bitcast2), frontend_attributes={_scheduling_group_id="3"}
+    agd0 = f32[1024,1024]{1,0} all-gather-done(ags0), frontend_attributes={_scheduling_group_id="0"}
+    ROOT tuple = (f32[16,64,256]{2,1,0}, f32[1024,1024]{1,0}) tuple(bitcast3, agd0)
+  }
+  )";
+  TF_ASSERT_OK_AND_ASSIGN(std::unique_ptr<HloModule> hlo_module,
+                          ParseAndReturnVerifiedModule(hlo_string));
+  LegalizeSchedulingAnnotations::Config config;
+  config.keep_trivial_sync_annotation = [](const HloInstruction* instr) {
+    return instr->opcode() != HloOpcode::kBitcast;
+  };
+  EXPECT_IS_OK(
+      LegalizeSchedulingAnnotations(config).Run(hlo_module.get()).status());
+  HloInstruction* bitcast3 =
+      hlo_module->entry_computation()->root_instruction()->mutable_operand(0);
+  HloInstruction* bitcast2 = bitcast3->mutable_operand(0);
+  HloInstruction* copy = bitcast2->mutable_operand(0);
+  HloInstruction* bitcast = copy->mutable_operand(0);
+  EXPECT_TRUE(
+      copy->frontend_attributes().map().contains(kXlaSchedulingGroupIdAttr));
+  EXPECT_FALSE(
+      bitcast->frontend_attributes().map().contains(kXlaSchedulingGroupIdAttr));
+  EXPECT_TRUE(bitcast2->frontend_attributes().map().contains(
+      kXlaSchedulingGroupIdAttr));
+  EXPECT_TRUE(bitcast3->frontend_attributes().map().contains(
+      kXlaSchedulingGroupIdAttr));
+}
+
 TEST_F(LegalizeSchedulingAnnotationsTest, OpsWithControlDependencies) {
   constexpr absl::string_view hlo_string = R"(
   HloModule module, is_scheduled=true
@@ -744,6 +782,36 @@ ENTRY %entry (p0: bf16[5,8,128], p1: bf16[5,1,2,128]) -> bf16[5,8,128] {
   EXPECT_TRUE(annotation->group_id);
   EXPECT_EQ(annotation->group_id.value(), 123);
   EXPECT_FALSE(annotation->iteration_id);
+}
+
+TEST_F(SchedulingAnnotationPropagationTest, VerifyCycle) {
+  absl::string_view hlo_string = R"(
+HloModule module, is_scheduled=true
+
+ENTRY entry {
+  p0 = f32[16]{0} parameter(0)
+  p1 = f32[16]{0} parameter(1)
+  a0 = f32[16]{0} add(p0, p1), frontend_attributes={_scheduling_group_id="1"}
+  a1 = f32[16]{0} add(a0, p1), frontend_attributes={_scheduling_group_id="2"}
+  a2 = f32[16]{0} add(a1, p1), frontend_attributes={_scheduling_group_id="3"}
+  a3 = f32[16]{0} add(a2, p1), frontend_attributes={_scheduling_group_id="2"}
+  a4 = f32[16]{0} add(p1, a3), frontend_attributes={_scheduling_group_id="1"}
+  ROOT tuple = (f32[16]{0}, f32[16]{0}) tuple(a3, a4)
+}
+)";
+  TF_ASSERT_OK_AND_ASSIGN(std::unique_ptr<HloModule> hlo_module,
+                          ParseAndReturnVerifiedModule(hlo_string));
+  LegalizeSchedulingAnnotations::Config config;
+  config.run_verification = true;
+
+  auto result = LegalizeSchedulingAnnotations(config).Run(hlo_module.get());
+  EXPECT_IS_NOT_OK(result);
+  VLOG(1) << "module after: " << hlo_module->ToString();
+  std::string error_message = std::string(result.status().message());
+  VLOG(1) << "error message: " << error_message;
+  EXPECT_TRUE(absl::StrContains(error_message,
+                                "Detected scheduling group annotation "
+                                "cycle"));
 }
 
 }  // namespace
