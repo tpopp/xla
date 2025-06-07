@@ -3,6 +3,7 @@ load("@local_config_rocm//rocm:build_defs.bzl", "if_rocm_is_configured")
 load("//xla:xla.default.bzl", "xla_cc_test")
 load(
     "//xla/stream_executor:build_defs.bzl",
+    "if_cuda_or_rocm_is_configured",
     "if_gpu_is_configured",
 )
 load("//xla/tests:build_defs.bzl", "xla_test")
@@ -38,13 +39,14 @@ cc_library(
         "//xla/backends/gpu/codegen:fusion_emitter",
         "//xla/backends/gpu/runtime:kernel_thunk",
         "//xla/backends/gpu/runtime:thunk",
+        "//xla/codegen/emitters:kernel_arguments",
         "//xla/hlo/ir:hlo",
         "//xla/hlo/utils:hlo_traversal",
         "//xla/service/gpu:backend_configs_cc",
+        "//xla/service/gpu:gpu_constants",
         "//xla/service/gpu:hlo_fusion_analysis",
         "//xla/service/gpu:ir_emission_utils",
         "//xla/service/gpu:ir_emitter_context",
-        "//xla/service/gpu:kernel_arguments",
         "//xla/service/gpu:kernel_reuse_cache",
         "//xla/service/gpu:launch_dimensions",
         "//xla/service/gpu:matmul_utils",
@@ -159,7 +161,9 @@ cc_library(
         "@triton//:TritonLLVMIR",
         "@triton//:TritonNvidiaGPUTransforms",
         "@triton//:TritonToTritonGPU",
+        "@triton//:TritonToTritonGPUPasses",
         "@triton//:TritonTransforms",
+        "@triton//:WarpSpecialization",
     ]) + if_cuda_is_configured([
         "//xla/service/gpu/llvm_gpu_backend:nvptx_backend",
         "//xla/service/gpu/llvm_gpu_backend:nvptx_libdevice_path",
@@ -175,7 +179,8 @@ cc_library(
 
 cc_library(
     name = "fusion_emitter",
-    srcs = if_gpu_is_configured(
+    # Using if_cuda_or_rocm_is_configured guard to prevent sycl target build / link errors.
+    srcs = if_cuda_or_rocm_is_configured(
         ["fusion_emitter.cc"],
         ["fusion_emitter_stub.cc"],
     ),
@@ -229,6 +234,7 @@ cc_library(
         "//xla/tsl/platform:statusor",
         "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_absl//absl/container:inlined_vector",
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/status",
@@ -598,6 +604,7 @@ xla_test(
         "//xla/stream_executor:device_description",
         "//xla/tests:xla_internal_test_main",  # fixdeps: keep
         "//xla/tsl/platform:statusor",
+        "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/strings",
         "@com_google_googletest//:gtest",

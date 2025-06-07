@@ -1430,7 +1430,7 @@ xla_test(
         "cpu",
         "gpu",
     ],
-    shard_count = 41,
+    shard_count = 40,
     tags = [
         "cuda-only",
         "optonly",
@@ -2853,9 +2853,9 @@ xla_test(
         "//xla:literal",
         "//xla:literal_util",
         "//xla:types",
+        "//xla:xla_data_proto_cc",
         "//xla/hlo/ir:hlo",
         "//xla/hlo/utils:hlo_matchers",
-        "//xla/pjrt/gpu:gpu_helpers",
         "//xla/service:computation_placer_hdr",
         "//xla/service:hlo_module_config",
         "//xla/service:hlo_runner_interface",
@@ -3874,6 +3874,7 @@ cc_library(
         ["//visibility:public"],
     ),
     deps = [
+        "@com_google_absl//absl/base:nullability",
         "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/strings",
