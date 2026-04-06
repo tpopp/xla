@@ -75,10 +75,15 @@ limitations under the License.
 #include "absl/log/log.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/ascii.h"
+#include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
+#include "absl/strings/str_join.h"
+#include "absl/strings/str_split.h"
 #include "absl/strings/string_view.h"
 #include "absl/strings/strip.h"
+#include "absl/types/span.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/Support/MD5.h"
 #include "xla/tsl/platform/env.h"
@@ -134,7 +139,9 @@ struct Settings {
 
 // Determine the "runfiles" directory from argv[0].
 std::string RunFiles(int argc, char** argv) {
-  if (argc <= 0) return std::string();
+  if (argc <= 0) {
+    return "";
+  }
 
   std::string runfiles = argv[0];
   const std::string suffix = ".runfiles/";
@@ -142,13 +149,13 @@ std::string RunFiles(int argc, char** argv) {
   if (pos != std::string::npos) {
     return runfiles.substr(0, pos + suffix.size());
   }
+
   pos = runfiles.find_last_of('.');
-  if (pos != std::string::npos) {
-    if (runfiles.find_first_of('/', pos) == std::string::npos) {
-      runfiles.erase(pos);
-    }
+  if (pos != std::string::npos &&
+      runfiles.find_first_of('/', pos) == std::string::npos) {
+    runfiles.erase(pos);
   }
-  runfiles += suffix;
+  absl::StrAppend(&runfiles, suffix);
   return runfiles;
 }
 
@@ -178,89 +185,15 @@ absl::StatusOr<std::vector<std::string>> ExpandDirs(
   return allfiles;
 }
 
-// A short, escaped representation of a character.  We choose octal
-// escapes as they always end after three characters.
-std::string Escape(unsigned char c) {
-  static const char kDigits[] = "01234567";
-  std::string::value_type buf[sizeof "\\377"];
-  std::string::value_type* ep = buf + sizeof buf;
-  std::string::value_type* p = ep;
-  switch (c) {
-    case '"':
-    case '?':
-    case '\\':
-      *--p = c;
-      break;
-    case '\a':
-      *--p = 'a';
-      break;
-    case '\b':
-      *--p = 'b';
-      break;
-    case '\f':
-      *--p = 'f';
-      break;
-    case '\n':
-      *--p = 'n';
-      break;
-    case '\r':
-      *--p = 'r';
-      break;
-    case '\v':
-      *--p = 'v';
-      break;
-    case '\t':
-      *--p = 't';
-      break;
-    default:
-      *--p = kDigits[c & 7];
-      if ((c >>= 3) != 0) {
-        *--p = kDigits[c & 7];
-        if ((c >>= 3) != 0) {
-          *--p = kDigits[c & 3];
-        }
-      }
-      break;
-  }
-  *--p = '\\';
-  return std::string(p, ep - p);
-}
-
-std::string TrimFront(absl::string_view s, char c) {
-  absl::string_view::size_type pos = 0;
-  while (pos < s.size() && s[pos] == c) {
-    ++pos;
-  }
-  return std::string(s.substr(pos));
-}
-
-std::string TrimBack(absl::string_view s, char c) {
-  absl::string_view::size_type pos = s.size();
-  while (pos > 0 && s[pos - 1] == c) {
-    --pos;
-  }
-  return std::string(s.substr(0, pos));
-}
-
 // Strip out non-alphanumeric characters, replacing them with underscore.
-std::string ToCIdentifier(const std::string& s) {
-  std::string symbol = s;
-  for (auto& c : symbol)
-    if (!isalnum(c)) c = '_';
-  return symbol;
-}
-
-std::vector<std::string> Split(const std::string& str, const std::string& sep) {
-  std::vector<std::string> result;
-  std::string::size_type pos = 0;
-  for (;;) {
-    std::string::size_type end = str.find_first_of(sep, pos);
-    std::string::size_type len = (end == std::string::npos ? end : end - pos);
-    result.push_back(str.substr(pos, len));
-    if (end == std::string::npos) break;
-    pos = end + sep.size();
+std::string ToCIdentifier(absl::string_view s) {
+  std::string symbol(s);
+  for (char& c : symbol) {
+    if (!absl::ascii_isalnum(static_cast<unsigned char>(c))) {
+      c = '_';
+    }
   }
-  return result;
+  return symbol;
 }
 
 // Generates (possibly nested) namespace wrapping.
@@ -268,12 +201,12 @@ std::pair<std::string, std::string> GetNamespaces(const Settings& settings) {
   std::string intro;
   std::string outro;
   if (!settings.namespace_name.empty()) {
-    for (const auto& ns : Split(settings.namespace_name, "::")) {
-      intro = intro + "namespace " + ns + " {\n";
-      outro = "}  // namespace " + ns + "\n" + outro;
+    for (const auto& ns : absl::StrSplit(settings.namespace_name, "::")) {
+      absl::StrAppend(&intro, "namespace ", ns, " {\n");
+      outro = absl::StrCat("}  // namespace ", ns, "\n", outro);
     }
-    intro = intro + "\n";
-    outro = "\n" + outro;
+    absl::StrAppend(&intro, "\n");
+    absl::StrAppend(&outro, "\n");
   }
   return std::make_pair(intro, outro);
 }
@@ -330,8 +263,8 @@ std::string Comment(absl::string_view base, const Settings& settings) {
     absl::StrAppend(&comment, "//    --flatten\n");
   }
   if (!settings.strip.empty()) {
-    absl::StrAppend(
-        &comment, "//    --strip " + absl::StrJoin(settings.strip, ","), "\n");
+    absl::StrAppend(&comment, "//    --strip ",
+                    absl::StrJoin(settings.strip, ","), "\n");
   }
   return comment;
 }
@@ -340,12 +273,11 @@ std::string Comment(absl::string_view base, const Settings& settings) {
 std::string GetHeaderGuard(const std::string& base, const Settings& settings) {
   std::string guard;
   if (!settings.namespace_name.empty()) {
-    for (const auto& ns : Split(settings.namespace_name, "::")) {
-      guard += ns;
-      guard += "_";
+    for (const auto& ns : absl::StrSplit(settings.namespace_name, "::")) {
+      absl::StrAppend(&guard, ns, "_");
     }
   }
-  guard += base;
+  absl::StrAppend(&guard, base);
   return guard;
 }
 
@@ -385,7 +317,7 @@ void WriteHeader(const std::string& filename, const std::string& comment,
   hdr << "\n";
 
   const std::string guard =
-      "__STRUCT_FILE_TOC_" + GetHeaderGuard(base, settings) + "_";
+      absl::StrCat("__STRUCT_FILE_TOC_", GetHeaderGuard(base, settings), "_");
   hdr << "#ifndef " << guard << "\n";
   hdr << "#define " << guard << "\n";
   hdr << "\n" << namespaces.first;
@@ -442,12 +374,11 @@ std::vector<Initializer> EmbedFiles(const std::vector<std::string>& infiles,
 
     const std::string seq_str = std::to_string(seq++);
     const std::string symbol =
-        ToCIdentifier("filewrapper_" + seq_str + "_" + filename);
+        ToCIdentifier(absl::StrCat("filewrapper_", seq_str, "_", filename));
 
     f_cc << "ALIGN_ATTRIBUTE(" << settings.align << ") "
          << "const char " << symbol << "[] =\n";
     std::string pending_line = "\"";
-    bool esc_digit = false;
 
     llvm::MD5 digest;
 
@@ -457,14 +388,16 @@ std::vector<Initializer> EmbedFiles(const std::vector<std::string>& infiles,
     for (;;) {
       f_in.read(rbuf, kBufSize);
       const std::streamsize cc = f_in.gcount();
-      if (cc == 0) break;
+      if (cc == 0) {
+        break;
+      }
       for (std::streamsize i = 0; i < cc; ++i) {
         unsigned char c = rbuf[i];
         std::string rep(1, c);  // default to self
-        if (!isprint(c) || c == '"' || c == '?' || c == '\\' ||
-            (isdigit(c) && esc_digit)) {
-          rep = Escape(c);  // "\0" through "\377"
-          esc_digit = (rep.size() < 4 && isdigit(rep.back()));
+        if (!isprint(c) || c == '"' || c == '?' || c == '\\') {
+          rep = absl::StrFormat("\\%03o", c);
+        } else {
+          rep = std::string(1, c);
         }
         if (pending_line.size() + rep.size() > 79) {
           f_cc << pending_line << "\"\n";
@@ -525,11 +458,11 @@ absl::Status WriteCpp(tsl::Env* env, const std::string& cc_filename,
   std::string include_path = settings.include_path;
   if (!include_path.empty() && (base.empty() || base[0] != '/')) {
     toc << include_path;
-    if (include_path.back() != '/') {
+    if (!absl::EndsWith(include_path, "/")) {
       toc << '/';
     }
   }
-  toc << base << ".h\"\n\n";
+  toc << absl::StrCat(base, ".h\"\n\n");
 
   initializers = EmbedFiles(infiles, cc_filename, toc, settings);
   toc << "\n";
@@ -545,7 +478,12 @@ absl::Status WriteCpp(tsl::Env* env, const std::string& cc_filename,
   // This allows both "//third_party/some/path" and "subdir/" to work.
   std::vector<std::string> prefixes;
   for (const absl::string_view prefix : strip) {
-    prefixes.push_back(TrimFront(TrimBack(prefix, '/'), '/') + "/");
+    absl::string_view p = prefix;
+    while (absl::ConsumePrefix(&p, "/")) {
+    }
+    while (absl::ConsumeSuffix(&p, "/")) {
+    }
+    prefixes.push_back(absl::StrCat(p, "/"));
   }
 
   toc << "static const struct FileToc toc[";
@@ -676,12 +614,12 @@ int main(int argc, char** argv) {
   // Compute the final destinations for the files.
   std::string hdr_name = settings.out_h;
   if (hdr_name.empty()) {
-    hdr_name = base + ".h";
+    hdr_name = absl::StrCat(base, ".h");
   }
 
   std::string src_name = settings.out_cc;
   if (src_name.empty()) {
-    src_name = base + ".cc";
+    src_name = absl::StrCat(base, ".cc");
   }
 
   std::vector<Initializer> initializers;  // info for encapsulated files
