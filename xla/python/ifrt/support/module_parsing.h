@@ -16,29 +16,6 @@ limitations under the License.
 #ifndef XLA_PYTHON_IFRT_SUPPORT_MODULE_PARSING_H_
 #define XLA_PYTHON_IFRT_SUPPORT_MODULE_PARSING_H_
 
-#include "absl/status/statusor.h"
-#include "absl/strings/string_view.h"
-#include "mlir/IR/BuiltinOps.h"
-#include "mlir/IR/MLIRContext.h"
-#include "mlir/IR/OwningOpRef.h"
-
-namespace xla {
-namespace ifrt {
-namespace support {
-
-// Initializes the given MLIR dialect registry with dialects that are required
-// by IFRT IR passes.
-void InitializeMlirDialectRegistry(mlir::DialectRegistry& registry);
-
-// Registers all dialects required by IFRT IR modules.
-void RegisterMlirDialects(mlir::MLIRContext& context);
-
-// Converts an IFRT IR module string to an mlir::Module.
-absl::StatusOr<mlir::OwningOpRef<mlir::ModuleOp>> ParseMlirModuleString(
-    absl::string_view mlir_module_str, mlir::MLIRContext& context);
-
-}  // namespace support
-}  // namespace ifrt
-}  // namespace xla
+#include "xla/python/ifrt/ir/support/module_parsing.h"
 
 #endif  // XLA_PYTHON_IFRT_SUPPORT_MODULE_PARSING_H_
