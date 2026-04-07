@@ -673,7 +673,7 @@ absl::Status RunOneShotRaggedAllToAllWithNccl(
     int64_t num_total_updates, int64_t num_input_rows, int64_t num_row_elements,
     absl::Span<DeviceBufferPair const> buffers) {
   int device_ordinal = stream.parent()->device_ordinal();
-  const int64_t num_ranks = clique_key.num_local_participants();
+  const int64_t num_ranks = clique_key.num_devices();
 
   XLA_VLOG_DEVICE(3, device_ordinal)
       << "Performing one-shot ragged-all-to-all with NCCL barrier rank: "
