@@ -201,13 +201,10 @@ SmallVector<int64_t> GetPaddedTileSizes(ArrayRef<int64_t> tile_sizes) {
 // the induction variables yet.
 absl::StatusOr<SmallVector<Value>> EmitterContext::EvaluateTilingParameters(
     ArrayRef<SymbolicExpr> exprs) {
-  SmallVector<SymbolicExpr> symnolic_exprs;
-  for (const auto& expr : schedule_.GetSymbolicMap().GetResults()) {
-    symnolic_exprs.push_back(expr);
-  }
   SmallVector<SymbolicExpr> updated_exprs;
   for (const auto& expr : exprs) {
-    updated_exprs.push_back(expr.ReplaceDims(symnolic_exprs));
+    updated_exprs.push_back(
+        expr.ReplaceDims(schedule_.GetSymbolicMap().GetResults()));
   }
   IndexingMap offset_indexing_map(
       SymbolicMap::Get(schedule_.GetMLIRContext(), 1, 0, updated_exprs),
@@ -772,6 +769,30 @@ absl::StatusOr<SmallVector<Type>> GetFnArgTypes(
     fn_arg_types.push_back(type);
   }
   return fn_arg_types;
+}
+
+absl::Status CheckConcatenateOperands(
+    const HloConcatenateInstruction& hlo_concat, int64_t concat_dim_tile_size) {
+  int64_t concatenate_dimension = hlo_concat.concatenate_dimension();
+  int64_t num_operands = hlo_concat.operands().size();
+  for (const auto [index, operand] : llvm::enumerate(hlo_concat.operands())) {
+    int64_t operand_concat_dim_size =
+        operand->shape().dimensions(concatenate_dimension);
+    // The last operand does not have to be a multiple of the tile size, since
+    // we can pad it.
+    if (index != num_operands - 1 &&
+        operand_concat_dim_size % concat_dim_tile_size != 0) {
+      // Sanity check: concatenation dimension should be divisible by the tile
+      // size for each but last operand. This is not a fundamental limitation,
+      // but this lowering will emit incorrect code if this does not hold---so
+      // we gate against it explicitly.
+      return absl::FailedPreconditionError(absl::StrCat(
+          "Expected the tile size of the concatenation dimension of operand ",
+          operand->ToString(), "to divide the dimension size exactly, but got",
+          operand_concat_dim_size, " % ", concat_dim_tile_size, " != 0"));
+    }
+  }
+  return absl::OkStatus();
 }
 
 }  // namespace xla::xtile

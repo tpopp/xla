@@ -135,10 +135,10 @@ class TiledHloComputation {
                                   std::unique_ptr<TilingSpace> tiling_space);
 
   // Returns the symbolic tiled HLO instructions in def-before-use order.
-  llvm::ArrayRef<std::unique_ptr<TiledHloInstruction>> tiled_hlo_instructions()
-      const {
+  const TiledHloInstruction::Region& tiled_hlo_instructions() const {
     return tiled_hlo_instructions_;
   }
+
   // Return the underlying MLIRContext.
   mlir::MLIRContext* GetMLIRContext() const {
     return tiling_space_->mlir_context();
@@ -186,7 +186,7 @@ class TiledHloComputation {
 
   std::unique_ptr<TilingSpace> tiling_space_;
   // The tiled HLO instructions in def-before-use order.
-  std::vector<std::unique_ptr<TiledHloInstruction>> tiled_hlo_instructions_;
+  TiledHloInstruction::Region tiled_hlo_instructions_;
 
   // Stores pointers to the root instructions. Note that they do not necessarily
   // appear all at the end of `instructions_`.
