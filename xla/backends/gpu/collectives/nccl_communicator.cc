@@ -998,7 +998,6 @@ NcclDeviceCommunicator::CreateFrom(const NcclCommunicator& comm,
 #if NCCL_VERSION_CODE >= 22900
   reqs = NCCL_DEV_COMM_REQUIREMENTS_INITIALIZER;
 #endif
-  reqs.barrierCount = requirements.lsa_barrier_count;
   reqs.lsaBarrierCount = requirements.lsa_barrier_count;
 
   ncclDevComm dev_comm{};
