@@ -33,12 +33,12 @@ namespace sdy {
 void addStablehloExportPipeline(mlir::OpPassManager& pm,
                                 const StablehloExportPipelineOptions& options) {
   pm.addPass(createStablehloExportManualReductionCollectivesPass());
+  pm.addPass(createExportNamedComputationsPass());
   // This pass converts `sdy.constant` (which isn't foldable) into
   // `stablehlo.constant` (which is foldable), therefore greedy pattern
   // rewriters shouldn't be applied before converting to HLO as they apply
   // folding.
   pm.addPass(createExportOpsPass(options.keepHloShardingConstraints));
-  pm.addPass(createExportNamedComputationsPass());
   pm.addPass(createStablehloRoundTripShardMapExportPass(
       options.keepHloShardingConstraints));
   if (!options.keepHloShardingConstraints) {
