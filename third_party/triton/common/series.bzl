@@ -31,5 +31,6 @@ common_patch_list = [
     "//third_party/triton:common/llvm_cl887809531.patch",
     "//third_party/triton:common/llvm_cl893899241.patch",
     "//third_party/triton:common/stage_and_cluster_map.patch",
+    "//third_party/triton:common/llvm_cl895542516.patch",
     # Add new patches just above this line
 ]
