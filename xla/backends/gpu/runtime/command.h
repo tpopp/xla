@@ -133,7 +133,6 @@ class Command : public Thunk {
         cmd_type_(cmd_type),
         priority_(priority) {
     token_ = Resource::Create(Resource::kToken);
-    resource_uses_.push_back(ResourceUse::Write(token_));
   }
 
   virtual ~Command() = default;
@@ -212,15 +211,6 @@ class Command : public Thunk {
 
   std::shared_ptr<Resource> token() const { return token_; }
 
-  void add_resource_use(ResourceUse resource_use) {
-    resource_uses_.push_back(resource_use);
-  }
-
-  // Returns resource used by this command. Resource uses do not include
-  // resources that might be used by nested commands, they must be collected
-  // separately by walking the nested commands using `Walk` API.
-  ResourceUses resource_uses() const { return resource_uses_; }
-
   // Returns true if command implemented as a nested command buffer.
   virtual bool IsNestedCommandBuffer() const { return false; }
 
@@ -248,8 +238,6 @@ class Command : public Thunk {
 
  private:
   CommandType cmd_type_;
-
-  ResourceUses resource_uses_;
 
   // The token resource is used to specify additional dependency across
   // commands, like control dependency across HLO operators, and LHS scheduling
