@@ -1636,6 +1636,7 @@ cc_library(
     srcs = ["host_memory_allocator.cc"],
     hdrs = ["host_memory_allocator.h"],
     deps = [
+        "//xla/runtime:device_id",
         "//xla/tsl/framework:allocator",
         "@com_google_absl//absl/functional:any_invocable",
         "@com_google_absl//absl/status",
