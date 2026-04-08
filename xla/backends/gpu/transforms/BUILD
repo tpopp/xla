@@ -1886,6 +1886,7 @@ cc_library(
         "//xla/service:matmul_indexing_utils",
         "//xla/service:memory_annotations_hdr",
         "//xla/service/gpu:backend_configs_cc",
+        "//xla/service/gpu:conv_utils",
         "//xla/service/gpu:cublas_cudnn",
         "//xla/service/gpu:ir_emission_utils",
         "//xla/service/gpu:matmul_utils",
