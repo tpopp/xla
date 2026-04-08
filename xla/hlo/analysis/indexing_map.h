@@ -268,15 +268,6 @@ class IndexingMap {
       llvm::ArrayRef<SymbolicExpr> dim_const_exprs,
       llvm::ArrayRef<SymbolicExpr> symbol_const_exprs) const;
 
-  // Deprecated. TODO: b/446856820 - Remove once fully migrated to SymbolicMap.
-  ABSL_DEPRECATED("Use the overload with SymbolicExpr arguments instead")
-  llvm::SmallVector<int64_t, 4> Evaluate(
-      llvm::ArrayRef<mlir::AffineExpr> dim_const_exprs,
-      llvm::ArrayRef<mlir::AffineExpr> symbol_const_exprs) const {
-    return Evaluate(
-        AffineExprsToSymbolicExprs(dim_const_exprs, GetDimensionCount()),
-        AffineExprsToSymbolicExprs(symbol_const_exprs, GetDimensionCount()));
-  }
   // Evaluates indexing map results at a given point.
   llvm::SmallVector<int64_t, 4> Evaluate(
       llvm::ArrayRef<SymbolicExpr> dim_const_exprs,
