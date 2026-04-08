@@ -2062,6 +2062,13 @@ void MakeDebugOptionsFlags(std::vector<tsl::Flag>* flag_list,
       debug_options->xla_gpu_collective_permute_decomposer_threshold(),
       "[Stable] Collective permute decomposer threshold."));
   flag_list->push_back(tsl::Flag(
+      "xla_gpu_collectives_implementation",
+      string_setter_for(&DebugOptions::set_xla_gpu_collectives_implementation),
+      debug_options->xla_gpu_collectives_implementation(),
+      "Name of the GPU collectives implementation to use (e.g. \"nccl\", "
+      "\"loopback\"). When empty (the default), the highest-priority "
+      "registered implementation is used."));
+  flag_list->push_back(tsl::Flag(
       "xla_gpu_experimental_pipeline_parallelism_opt_level",
       setter_for_xla_gpu_experimental_pipeline_parallelism_opt_level,
       DebugOptions::PipelineParallelismOptLevel_Name(
