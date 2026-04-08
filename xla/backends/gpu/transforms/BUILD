@@ -3502,7 +3502,6 @@ cc_library(
     hdrs = ["splitk_rewriter.h"],
     deps = [
         "//xla:literal_util",
-        "//xla:permutation_util",
         "//xla:shape_util",
         "//xla:util",
         "//xla:xla_data_proto_cc",
@@ -3600,10 +3599,12 @@ xla_cc_test(
         "//xla/hlo/pass:hlo_pass",
         "//xla/hlo/testlib:filecheck",
         "//xla/hlo/testlib:hlo_hardware_independent_test_base",
+        "//xla/service/gpu:gpu_device_info_for_tests",
         "//xla/stream_executor:device_description",
         "//xla/stream_executor:device_description_proto_cc",
         "//xla/tests:test_utils",
         "//xla/tsl/platform:statusor",
+        "@com_google_absl//absl/log:check",
         "@com_google_googletest//:gtest_main",
     ],
 )
