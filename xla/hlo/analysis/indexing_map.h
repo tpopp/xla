@@ -463,6 +463,16 @@ std::vector<IndexingMap::Variable> RangeVarsFromTensorSizes(
 IndexingMap ConvertRangeVariablesToDimensions(
     const IndexingMap& map, llvm::ArrayRef<int64_t> range_var_indices);
 
+// Returns IDs of dimensions and symbols that participate in SymbolicExpr.
+struct UsedParameters {
+  // Sorted list of dimension IDs.
+  llvm::SmallVector<int64_t> dimension_ids;
+  // Sorted list of symbol IDs.
+  llvm::SmallVector<int64_t> symbol_ids;
+};
+UsedParameters GetUsedParameters(absl::Span<const SymbolicExpr> exprs,
+                                 int64_t num_dims);
+
 }  // namespace xla
 
 #endif  // XLA_HLO_ANALYSIS_INDEXING_MAP_H_
