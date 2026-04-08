@@ -129,7 +129,7 @@ bool IsValidMxScaledDot(const HloInstruction* scaled_dot) {
   }
 
   int64_t m = 1;
-  for (int64_t i = 0; i < lhs_shape.dimensions_size(); ++i) {
+  for (int64_t i = 0; i < lhs_shape.dimensions().size(); ++i) {
     if (!absl::c_linear_search(dot_dims.lhs_batch_dimensions(), i) &&
         !absl::c_linear_search(dot_dims.lhs_contracting_dimensions(), i)) {
       m *= lhs_shape.dimensions(i);
@@ -137,7 +137,7 @@ bool IsValidMxScaledDot(const HloInstruction* scaled_dot) {
   }
 
   int64_t n = 1;
-  for (int64_t i = 0; i < rhs_shape.dimensions_size(); ++i) {
+  for (int64_t i = 0; i < rhs_shape.dimensions().size(); ++i) {
     if (!absl::c_linear_search(dot_dims.rhs_batch_dimensions(), i) &&
         !absl::c_linear_search(dot_dims.rhs_contracting_dimensions(), i)) {
       n *= rhs_shape.dimensions(i);
