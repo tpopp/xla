@@ -184,6 +184,32 @@ xla_cc_test(
 )
 
 xla_cc_test(
+    name = "rms_norm_benchmark_test",
+    srcs = ["rms_norm_benchmark_test.cc"],
+    deps = [
+        ":aot_benchmark_helper",
+        ":hlo_benchmark_runner",
+        "//xla:literal",
+        "//xla:shape_util",
+        "//xla:xla_data_proto_cc",
+        "//xla/hlo/ir:hlo",
+        "//xla/hlo/parser:hlo_parser",
+        "//xla/service:hlo_proto_cc",
+        "//xla/tsl/platform:env",
+        "//xla/tsl/platform:statusor",
+        "@com_google_absl//absl/flags:flag",
+        "@com_google_absl//absl/log",
+        "@com_google_absl//absl/log:check",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:string_view",
+        "@com_google_absl//absl/types:span",
+        "@com_google_benchmark//:benchmark",
+        "@com_google_googletest//:gtest",
+        "@tsl//tsl/platform:stacktrace_handler",
+    ],
+)
+
+xla_cc_test(
     name = "dynamic_update_slice_benchmark_test",
     srcs = ["dynamic_update_slice_benchmark_test.cc"],
     fail_if_no_test_linked = False,  # NOLINT=This contains benchmarks only, no tests.
