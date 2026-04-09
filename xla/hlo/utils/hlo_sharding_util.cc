@@ -607,8 +607,7 @@ std::optional<std::vector<AxisRef>> MergeDimensionAxes(
 
 bool MergeNamedShardingIfCompatible(const NamedSharding& src,
                                     NamedSharding* dst) {
-  if (!src.mesh().DeviceAssignmentEquals(dst->mesh()) ||
-      src.num_dimensions() != dst->num_dimensions()) {
+  if (src.num_dimensions() != dst->num_dimensions()) {
     return false;
   }
 
@@ -677,7 +676,9 @@ bool MergeShardingIfCompatible(const HloSharding& to_merge_input,
     return true;
   }
 
-  if (to_merge_input.UseNamedShardingLeaf() && dst->UseNamedShardingLeaf()) {
+  if (to_merge_input.UseNamedShardingLeaf() && dst->UseNamedShardingLeaf() &&
+      to_merge_input.named_sharding().mesh().DeviceAssignmentEquals(
+          dst->named_sharding().mesh())) {
     NamedSharding dst_named = dst->named_sharding();
     if (MergeNamedShardingIfCompatible(to_merge_input.named_sharding(),
                                        &dst_named)) {
