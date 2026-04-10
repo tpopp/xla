@@ -89,6 +89,7 @@ cc_library(
     srcs = ["tile_propagation.cc"],
     hdrs = ["tile_propagation.h"],
     deps = [
+        ":reshape_analysis",
         ":tile",
         "//xla:literal_util",
         "//xla:permutation_util",
