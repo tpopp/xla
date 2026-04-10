@@ -212,17 +212,10 @@ absl::StatusOr<mlir::OwningOpRef<mlir::ModuleOp>> TileAndEmitXTileModule(
 
     VLOG(6) << "fusion instruction: " << fusion->ToString() << "\n";
     VLOG(6) << "tiling space: " << tiling_space->ToString();
-
-    // TODO(pifon): Support contraction tile sizes here.
-    if (block_level_parameters.output_tile_sizes.size() != 1) {
-      return Internal(
-          "Only single-result fusions are supported for now. Received %d "
-          "roots.",
-          block_level_parameters.output_tile_sizes.size());
-    }
-    // Triton requires that all block dimensions are a power of 2.
-    tiling_space->AssignTileSizes(xtile::GetPaddedTileSizes(
-        block_level_parameters.output_tile_sizes.front()));
+    TF_ASSIGN_OR_RETURN(
+        llvm::SmallVector<int64_t> tile_sizes,
+        GetTilingSpaceConcreteSizes(*tiling_space, block_level_parameters));
+    tiling_space->AssignTileSizes(xtile::GetPaddedTileSizes(tile_sizes));
 
     TileAnalysisOrError tiled_computation_or =
         TiledHloComputation::Tile(*fusion_adaptor, std::move(tiling_space));

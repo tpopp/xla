@@ -27,8 +27,6 @@ namespace gpu {
 // A container for block-level parameters. Currently only used for Triton
 // fusions.
 struct BlockLevelParameters {
-  // TODO(b/421837868): migrate to carry a full tiling instance wherever
-  // possible?
   std::vector<std::vector<int64_t>> output_tile_sizes;
 
   // Triton-specific parameters.
