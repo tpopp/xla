@@ -349,7 +349,9 @@ absl::StatusOr<PjRtLoadedExecutable::Result> TfrtGpuExecutable::ExecuteHelper(
   if (device == nullptr) {
     CHECK(device_assignment_ != nullptr);
     const int device_id = (*device_assignment_)(replica, partition);
-    VLOG(3) << "device_id: " << device_id;
+    XLA_VLOG_DEVICE(device_id, 3)
+        << "ExecuteHelper " << name() << " starting for replica: " << replica
+        << "; partition: " << partition;
     TF_ASSIGN_OR_RETURN(PjRtDevice * pjrt_device,
                         client_->LookupDevice(GlobalDeviceId(device_id)));
     device = tsl::down_cast<TfrtGpuDevice*>(pjrt_device);
@@ -453,7 +455,8 @@ absl::StatusOr<PjRtLoadedExecutable::Result> TfrtGpuExecutable::ExecuteHelper(
     // Prepare the tracked buffer for the input.
     TrackedGpuDeviceBuffer* tracked_buffer = nullptr;
     if (must_donate) {
-      VLOG(3) << "Buffer for argument_handles[" << i << "] is donated";
+      VLOG(4) << "module: " << name() << ". Buffer for argument_handles[" << i
+              << "] is donated";
 
       ++donate_it;
       TF_RETURN_IF_ERROR(TestBufferDonationClashes(
@@ -482,7 +485,7 @@ absl::StatusOr<PjRtLoadedExecutable::Result> TfrtGpuExecutable::ExecuteHelper(
     tracked_buffers.push_back(tracked_buffer);
     prepare_input_deps.push_back(tracked_buffer->buffer().CopyRCRef());
 
-    VLOG(3) << "argument_handles[" << i << "]: addr = "
+    VLOG(3) << "module: " << name() << " argument_handles[" << i << "]: addr = "
             << (tracked_buffer->buffer().IsAvailable()
                     ? tracked_buffer->buffer()->buffer().opaque()
                     : "NotReady")
@@ -495,8 +498,14 @@ absl::StatusOr<PjRtLoadedExecutable::Result> TfrtGpuExecutable::ExecuteHelper(
     // that they can poison output buffers.
     const auto& definition_event = tracked_buffer->definition_event();
     if (!definition_event.IsAvailable() || definition_event.IsError()) {
-      VLOG(3) << "definition_event is not available: AsyncValue pointer: "
-              << definition_event.GetAsyncValue();
+      VLOG(3) << "module: " << name()
+              << " definition_event is not available: AsyncValue pointer: "
+              << definition_event.GetAsyncValue()
+              << " isError: " << definition_event.IsError()
+              << " argument_handles[" << i << "] addr = "
+              << (tracked_buffer->buffer().IsAvailable()
+                      ? tracked_buffer->buffer()->buffer().opaque()
+                      : "NotReady");
       input_deps.push_back(definition_event.CopyRCRef());
     }
     ready_deps.push_back(tracked_buffer->ready_event().CopyRCRef());
@@ -511,7 +520,11 @@ absl::StatusOr<PjRtLoadedExecutable::Result> TfrtGpuExecutable::ExecuteHelper(
     // We don't use last_collective_launch_event directly because we don't
     // want the previous failure to be propagated to the current execution.
     last_collective_launch_event.AndThen(
-        [event = ordering_event.CopyRef()]() { event.SetStateConcrete(); });
+        [event = ordering_event.CopyRef(), module_name = name()]() {
+          VLOG(3) << " input_deps: module: " << module_name
+                  << " ordering_event is set concrete";
+          event.SetStateConcrete();
+        });
     input_deps.push_back(std::move(ordering_event));
   }
 
@@ -539,7 +552,7 @@ absl::StatusOr<PjRtLoadedExecutable::Result> TfrtGpuExecutable::ExecuteHelper(
           std::make_unique<TrackedGpuDeviceBuffer>(
               output_buffers.back().CopyRef(), scheduled_event.CopyRef(),
               complete_event.CopyRef(), nullptr, output_cuda_execute_event);
-      VLOG(4) << "created leaf_tracked_device_buffer: "
+      VLOG(3) << "module: " << name() << " created leaf_tracked_device_buffer: "
               << leaf_tracked_device_buffer.get();
 
       const Shape& shape = result_shape.tuple_shapes(i);
@@ -564,7 +577,9 @@ absl::StatusOr<PjRtLoadedExecutable::Result> TfrtGpuExecutable::ExecuteHelper(
         output_buffers.back().CopyRef(),
         /*definition_event=*/scheduled_event.CopyRef(),
         complete_event.CopyRef(), nullptr, output_cuda_execute_event);
-    VLOG(4) << "created tracked_device_buffer: " << tracked_device_buffer.get();
+    VLOG(3) << "module: " << name()
+            << " created tracked_device_buffer: " << tracked_device_buffer.get()
+            << ", device: " << device->DebugString();
 
     const Shape& shape = result_shape;
     PjRtMemorySpace* memory_space =
@@ -616,6 +631,7 @@ absl::StatusOr<PjRtLoadedExecutable::Result> TfrtGpuExecutable::ExecuteHelper(
                         std::vector<ExecutionInput> execution_inputs) mutable {
     VLOG(1) << "execute_fn for " << executable_name
             << ", launch_id: " << launch_id << ", replica: " << replica
+            << ", partition: " << partition
             << ", device: " << device->DebugString();
 
     tsl::profiler::TraceMeConsumer producer(
@@ -868,7 +884,7 @@ absl::StatusOr<PjRtLoadedExecutable::Result> TfrtGpuExecutable::ExecuteHelper(
   };
 
   auto prepare_inputs =
-      [replica, client = client_, launch_id(options.launch_id),
+      [replica, partition, client = client_, launch_id(options.launch_id),
        executable_name(name()), device,
        tracked_buffers(std::move(tracked_buffers)),
        buffer_is_donated(std::move(buffer_is_donated)),
@@ -908,7 +924,9 @@ absl::StatusOr<PjRtLoadedExecutable::Result> TfrtGpuExecutable::ExecuteHelper(
 
         VLOG(3) << "prepare_inputs for " << executable_name
                 << ", launch_id: " << launch_id << ", replica: " << replica
+                << ", partition: " << partition
                 << ", device: " << device->DebugString();
+
         DCHECK_EQ(tracked_buffers.size(), buffer_is_donated.size());
 
         absl::Status status = CheckBufferCompatibilities(
@@ -924,8 +942,10 @@ absl::StatusOr<PjRtLoadedExecutable::Result> TfrtGpuExecutable::ExecuteHelper(
               ShapeTree<MaybeOwningDeviceAddress>(&parameter_shapes->front()));
           ExecutionInput& input = inputs.back();
           for (int i = 0; i < tracked_buffers.size(); ++i) {
-            VLOG(4) << "tupled input[" << i
-                    << "]: " << tracked_buffers[i]->buffer()->buffer().opaque();
+            VLOG(4) << "execute_fn for " << executable_name
+                    << ", launch_id: " << launch_id << ", tupled input[" << i
+                    << "]: " << tracked_buffers[i]->buffer()->buffer().opaque()
+                    << ", device: " << device->DebugString();
             if (buffer_is_donated[i]) {
               input.SetUnownedBuffer(
                   {i},
@@ -941,8 +961,10 @@ absl::StatusOr<PjRtLoadedExecutable::Result> TfrtGpuExecutable::ExecuteHelper(
         } else {
           inputs.reserve(tracked_buffers.size());
           for (int i = 0; i < tracked_buffers.size(); ++i) {
-            VLOG(4) << "untupled input[" << i
-                    << "]: " << tracked_buffers[i]->buffer()->buffer().opaque();
+            VLOG(4) << "execute_fn for " << executable_name
+                    << ", launch_id: " << launch_id << ", untupled input[" << i
+                    << "]: " << tracked_buffers[i]->buffer()->buffer().opaque()
+                    << ", device: " << device->DebugString();
             inputs.emplace_back(
                 ShapeTree<MaybeOwningDeviceAddress>(&(*parameter_shapes)[i]));
             ExecutionInput& input = inputs.back();
@@ -959,6 +981,10 @@ absl::StatusOr<PjRtLoadedExecutable::Result> TfrtGpuExecutable::ExecuteHelper(
           }
         }
 
+        VLOG(6) << "ScheduleWhenReady execution of: " << executable_name
+                << ", launch_id: " << launch_id << ", replica: " << replica
+                << ", partition: " << partition
+                << ", device: " << device->DebugString();
         client->blocking_thread_pool()->ScheduleWhenReady(
             input_deps, [execute_fn(std::move(execute_fn)),
                          inputs(std::move(inputs))]() mutable {
