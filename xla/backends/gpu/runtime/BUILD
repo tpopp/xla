@@ -373,10 +373,9 @@ cc_library(
     ],
 )
 
-xla_test(
+xla_cc_test(
     name = "command_buffer_cmd_emitter_test",
     srcs = ["command_buffer_cmd_emitter_test.cc"],
-    backends = ["gpu"],
     deps = [
         ":command_buffer_cmd_emitter",
         ":command_executor",
