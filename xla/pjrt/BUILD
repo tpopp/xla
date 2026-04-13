@@ -1078,16 +1078,25 @@ xla_cc_test(
 )
 
 cc_library(
+    name = "transpose_kernels",
+    hdrs = ["transpose_kernels.h"],
+    deps = [
+        "//xla:compiler_macros",
+    ],
+)
+
+cc_library(
     name = "transpose",
     srcs = [
         "transpose.cc",
-        "transpose_kernels.h",
     ],
-    hdrs = ["transpose.h"],
+    hdrs = [
+        "transpose.h",
+    ],
     visibility = internal_visibility([":friends"]),
     deps = [
         ":lru_cache",
-        "//xla:compiler_macros",
+        ":transpose_kernels",
         "//xla:ef57",
         "//xla:permutation_util",
         "//xla:util",
@@ -1114,8 +1123,10 @@ xla_cc_test(
     shard_count = 10,
     deps = [
         ":transpose",
+        ":transpose_kernels",
         "//xla:array",
         "//xla:permutation_util",
+        "//xla:types",
         "//xla:util",
         "//xla/hlo/testlib:test",
         "//xla/tsl/lib/core:status_test_util",
