@@ -573,7 +573,6 @@ cc_library(
         "//xla/pjrt/proto:topology_description_proto_cc",
         "//xla/tsl/platform:errors",
         "//xla/tsl/platform:statusor",
-        "@com_google_absl//absl/base",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/base:no_destructor",
         "@com_google_absl//absl/container:flat_hash_map",
@@ -584,8 +583,6 @@ cc_library(
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/synchronization",
         "@com_google_absl//absl/types:span",
-        "@llvm-project//mlir:IR",
-        "@tsl//tsl/platform:casts",
         "@tsl//tsl/platform:fingerprint",
     ],
 )
