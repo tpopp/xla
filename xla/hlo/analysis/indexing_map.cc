@@ -1115,18 +1115,8 @@ RangeEvaluator::RangeEvaluator(const IndexingMap& indexing_map,
       indexing_map_(indexing_map),
       use_constraints_(use_constraints) {}
 
-bool RangeEvaluator::IsAlwaysPositiveOrZero(mlir::AffineExpr expr) {
-  return IsAlwaysPositiveOrZero(
-      AffineExprToSymbolicExpr(expr, indexing_map_.GetDimensionCount()));
-}
-
 bool RangeEvaluator::IsAlwaysPositiveOrZero(SymbolicExpr expr) {
   return ComputeExpressionRange(expr).lower >= 0;
-}
-
-Interval RangeEvaluator::ComputeExpressionRange(mlir::AffineExpr expr) {
-  return ComputeExpressionRange(
-      AffineExprToSymbolicExpr(expr, indexing_map_.GetDimensionCount()));
 }
 
 Interval RangeEvaluator::ComputeExpressionRange(SymbolicExpr expr) {

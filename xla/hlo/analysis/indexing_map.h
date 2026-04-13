@@ -74,15 +74,9 @@ class RangeEvaluator {
 
   // Checks whether an `SymbolicExpr` always describes a non-negative value.
   bool IsAlwaysPositiveOrZero(SymbolicExpr expr);
-  // TODO: b/446856820 - Remove once fully migrated to SymbolicMap.
-  ABSL_DEPRECATED("Use IsAlwaysPositiveOrZero(SymbolicExpr) instead")
-  bool IsAlwaysPositiveOrZero(mlir::AffineExpr expr);
 
   // Computes the range of expression using its subexpression ranges.
   Interval ComputeExpressionRange(SymbolicExpr expr);
-  // TODO: b/446856820 - Remove once fully migrated to SymbolicMap.
-  ABSL_DEPRECATED("Use ComputeExpressionRange(SymbolicExpr) instead")
-  Interval ComputeExpressionRange(mlir::AffineExpr expr);
 
   // Return MLIR context.
   mlir::MLIRContext* GetMLIRContext() const { return mlir_context_; }
