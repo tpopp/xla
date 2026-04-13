@@ -2899,6 +2899,7 @@ cc_library(
         "//xla/service/gpu:ir_emission_utils",
         "//xla/stream_executor:stream",
         "//xla/stream_executor:stream_executor_h",
+        "//xla/tsl/concurrency:future",
         "//xla/tsl/lib/gtl:int_type",
         "//xla/tsl/platform:status_macros",
         "//xla/tsl/util:unique_any",
