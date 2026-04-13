@@ -152,11 +152,29 @@ TEST(MlirToHloTest, MhloMixedSerializationTest_UnstableDialect) {
   mlir::MLIRContext context;
   TF_ASSERT_OK_AND_ASSIGN(mlir::OwningOpRef<mlir::ModuleOp> module,
                           ParseMlirModuleString(kProgram, context));
-  auto status = Serialize(*module, "1.11.0");
 
   // Use Mixed serialization starting at v1.11.0.
-  EXPECT_THAT(status, StatusIs(absl::StatusCode::kInvalidArgument,
-                               HasSubstr("found unstable op: func.constant")));
+  EXPECT_THAT(Serialize(*module, "1.11.0"),
+              StatusIs(absl::StatusCode::kInvalidArgument,
+                       HasSubstr("found unstable op: func.constant")));
+}
+
+TEST(MlirToHloTest, MhloMixedSerializationTest_UnregisteredDialect) {
+  constexpr char kProgram[] =
+      R"(
+    func.func @main(%arg0: tensor<f32>) -> tensor<f32> {
+      %0 = "UnknownOp"(%arg0) : (tensor<f32>) -> tensor<f32>
+      return %0 : tensor<f32>
+    }
+  )";
+  mlir::MLIRContext context;
+  context.allowUnregisteredDialects();
+  TF_ASSERT_OK_AND_ASSIGN(mlir::OwningOpRef<mlir::ModuleOp> module,
+                          ParseMlirModuleString(kProgram, context));
+
+  EXPECT_THAT(Serialize(*module, "1.11.0"),
+              StatusIs(absl::StatusCode::kInvalidArgument,
+                       HasSubstr("found unstable op: UnknownOp")));
 }
 
 TEST(MlirToHloTest, InvalidBytecodeTest) {
