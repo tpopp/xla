@@ -120,6 +120,11 @@ class CollectiveThunk : public Thunk {
   CommunicationId communication_id() const { return communication_id_; }
 
  protected:
+  virtual absl::Status PrepareCollective(const PrepareParams& params,
+                                         const GpuCliqueKey& clique_key) {
+    return absl::OkStatus();
+  }
+
   // Returns true if the first call to this collective operation has to be
   // guarded with a rendezvous synchronization with other local participants
   // before and after running the collective operation itself.

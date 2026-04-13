@@ -59,6 +59,8 @@ limitations under the License.
 #include "xla/backends/gpu/runtime/command_buffer_conversion_pass.h"
 #include "xla/backends/gpu/runtime/command_buffer_thunk.h"
 #include "xla/backends/gpu/runtime/nvshmem_collective_thunk.h"
+#include "xla/backends/gpu/runtime/scratch_memory.h"
+#include "xla/backends/gpu/runtime/scratch_memory_requests.h"
 #include "xla/backends/gpu/runtime/sequential_thunk.h"
 #include "xla/backends/gpu/runtime/thunk.h"
 #include "xla/backends/gpu/runtime/thunk.pb.h"
@@ -699,12 +701,16 @@ absl::Status ExecuteThunksImpl(const DebugOptions* debug_options,
 
   CollectiveCliqueRequests collective_clique_requests;
   CollectiveMemoryRequests collective_memory_requests(buffer_allocations);
+  ScratchMemoryRequests scratch_memory_requests;
 
   {  // Prepare thunks for execution and collect requested GPU cliques.
-    Thunk::PrepareParams prepare_params{
-        &collective_params,          &collective_clique_requests,
-        &collective_memory_requests, executor,
-        &buffer_allocations,         &execution_scoped_state};
+    Thunk::PrepareParams prepare_params{&collective_params,
+                                        &collective_clique_requests,
+                                        &collective_memory_requests,
+                                        &scratch_memory_requests,
+                                        executor,
+                                        &buffer_allocations,
+                                        &execution_scoped_state};
 
     tsl::profiler::TraceMe trace_prepare("Thunks::Prepare");
     RETURN_IF_ERROR(thunk_executor.Prepare(prepare_params));
@@ -733,6 +739,10 @@ absl::Status ExecuteThunksImpl(const DebugOptions* debug_options,
                                               collective_clique_requests));
   }
 
+  ASSIGN_OR_RETURN(ScratchMemory scratch_memory,
+                   AcquireScratchMemory(
+                       collective_params, scratch_memory_requests,
+                       collective_memory_cache, executor, collective_cliques));
   // Acquire collective memories requested by thunks.
   ASSIGN_OR_RETURN(CollectiveMemory collective_memory,
                    AcquireCollectiveMemory(
@@ -748,6 +758,7 @@ absl::Status ExecuteThunksImpl(const DebugOptions* debug_options,
         &collective_params,
         &collective_cliques,
         &collective_memory,
+        &scratch_memory,
         run_options->run_options().ffi_execution_context(),
         run_options->local_device_count(),
         &execution_scoped_state};
