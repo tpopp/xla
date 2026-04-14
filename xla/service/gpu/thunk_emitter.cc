@@ -364,16 +364,30 @@ AsyncThunkSequence ThunkEmitter::EmitConditional(const HloInstruction* instr) {
 
 // Input = {dynamic array(with dynamic dimension meta data at the end)}
 // Output = {static array, dynamic_dim0, dynamic_dim1}
-absl::StatusOr<ThunkSequence> ThunkEmitter::EmitPadToStatic(
+AsyncThunkSequence ThunkEmitter::EmitPadToStatic(
     const HloCustomCallInstruction* instr) {
-  std::string ir_name = std::string(instr->name());
-  auto local_llvm_module = ir_emitter_context_->CreateLLVMModule(ir_name);
+  ASSIGN_OR_RETURN(emitters::KernelArguments kernel_arguments,
+                   emitters::KernelArguments::Create(
+                       ir_emitter_context_->buffer_assignment(),
+                       GetDefaultBufferAlignment(), instr));
 
-  TF_ASSIGN_OR_RETURN(auto thunk_sequence,
-                      EmitPadToStaticLLVMIR(instr, local_llvm_module.get(),
-                                            ir_emitter_context_));
-  kernel_modules_.push_back(std::move(local_llvm_module));
-  return thunk_sequence;
+  ASSIGN_OR_RETURN(
+      KernelDefinition<LlvmKernelSource> kernel_def,
+      EmitPadToStaticLLVMIR(instr, ir_emitter_context_, kernel_arguments));
+
+  KernelSpec spec = kernel_def.spec();
+  ASSIGN_OR_RETURN(
+      LaunchDimensions launch_dimensions,
+      LaunchDimensions::FromWorkDimensions(spec.work_dimensions()));
+
+  return ir_emitter_context_->kernel_compiler()
+      ->Compile(Thunk::ThunkInfo::WithProfileAnnotation(
+                    instr, ir_emitter_context_->GetNextThunkId()),
+                std::move(kernel_def).TakeSource(), std::string(spec.name()),
+                kernel_arguments, launch_dimensions)
+      .Map([](std::unique_ptr<Thunk> thunk) {
+        return ThunkSequence::Of(std::move(thunk));
+      });
 }
 
 // Input = {dynamic array(with dynamic dimension meta data at the end)}
@@ -1355,7 +1369,8 @@ absl::StatusOr<ThunkSequence> ThunkEmitter::EmitCopy(
 absl::StatusOr<ThunkSequence> ThunkEmitter::EmitAsyncCustomCallStart(
     const HloInstruction* instr) {
   const HloInstruction* wrapped = instr->async_wrapped_instruction();
-  TF_ASSIGN_OR_RETURN(auto custom_call_thunks, EmitCustomCallSwitch(wrapped));
+  ASSIGN_OR_RETURN(auto custom_call_thunks,
+                   EmitCustomCallSwitch(wrapped).Await());
 
   auto* async_start = Cast<HloAsyncInstruction>(instr);
   const ExecutionStreamAssignment& stream_assignment =
@@ -2577,7 +2592,7 @@ AsyncThunkSequence ThunkEmitter::EmitAsyncStart(const HloInstruction* instr) {
   }
 }
 
-absl::StatusOr<ThunkSequence> ThunkEmitter::EmitCustomCallSwitch(
+AsyncThunkSequence ThunkEmitter::EmitCustomCallSwitch(
     const HloInstruction* hlo) {
   auto* custom_call = Cast<HloCustomCallInstruction>(hlo);
   if (IsLegacyCublasMatmul(*hlo)) {

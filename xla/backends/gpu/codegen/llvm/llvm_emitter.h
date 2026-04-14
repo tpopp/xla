@@ -85,9 +85,9 @@ AsyncThunkSequence EmitBitonicSortLLVMIR(const HloSortInstruction* sort,
 //   return;
 // }
 //   ```
-absl::StatusOr<ThunkSequence> EmitPadToStaticLLVMIR(
-    const HloCustomCallInstruction* hlo, llvm::Module* llvm_module,
-    IrEmitterContext* ir_emitter_context);
+absl::StatusOr<KernelDefinition<LlvmKernelSource>> EmitPadToStaticLLVMIR(
+    const HloCustomCallInstruction* hlo, IrEmitterContext* ir_emitter_context,
+    const emitters::KernelArguments& kernel_arguments);
 
 // Input = {dynamic array(with dynamic dimension meta data at the end)}
 // Output = {static array, dynamic_dim0, dynamic_dim1}

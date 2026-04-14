@@ -974,12 +974,18 @@ AsyncThunkSequence EmitBitonicSortLLVMIR(const HloSortInstruction* sort,
 
 // Input = {dynamic array(with dynamic dimension meta data at the
 // end)} Output = {static array, dynamic_dim0, dynamic_dim1}
-absl::StatusOr<ThunkSequence> EmitPadToStaticLLVMIR(
-    const HloCustomCallInstruction* hlo, llvm::Module* llvm_module,
-    IrEmitterContext* ir_emitter_context) {
-  std::string ir_name = std::string(hlo->name());
+absl::StatusOr<KernelDefinition<LlvmKernelSource>> EmitPadToStaticLLVMIR(
+    const HloCustomCallInstruction* hlo, IrEmitterContext* parent_context,
+    const emitters::KernelArguments& kernel_arguments) {
+  auto llvm_context = std::make_unique<llvm::LLVMContext>();
+  std::unique_ptr<IrEmitterContext> ir_emitter_context =
+      parent_context->SubContext(llvm_context.get());
+  std::string op_name = std::string(hlo->name());
 
-  IrEmitter ir_emitter(ir_emitter_context, llvm_module, /*nested=*/false);
+  std::unique_ptr<llvm::Module> llvm_module =
+      ir_emitter_context->CreateLLVMModule(op_name);
+  IrEmitter ir_emitter(ir_emitter_context.get(), llvm_module.get(),
+                       /*nested=*/false);
 
   constexpr int kUnrollFactor = 1;
   const Shape& input_shape = hlo->operand(0)->shape();
@@ -987,22 +993,22 @@ absl::StatusOr<ThunkSequence> EmitPadToStaticLLVMIR(
   LaunchDimensions launch_dimensions = CalculateLaunchDimensions(
       input_shape, ir_emitter_context->gpu_device_info(), kUnrollFactor);
 
-  ASSIGN_OR_RETURN(
-      KernelThunkInfo kernel_thunk_info,
-      BuildKernelThunkForNonFusionOp(
-          llvm_module, hlo, ir_emitter_context->buffer_assignment(),
-          ir_emitter_context->GetNextThunkId(),
-          ir_emitter_context->gpu_device_info(),
-          ir_emitter_context->GetSanitizedUniqueName(ir_name), ir_emitter,
-          launch_dimensions));
-  ThunkSequence thunk_sequence;
-  thunk_sequence.push_back(std::move(kernel_thunk_info.thunk));
+  std::string sanitized_kernel_name =
+      ir_emitter_context->GetSanitizedUniqueName(op_name);
 
-  const llvm_ir::IrArray& source_array = kernel_thunk_info.ir_arrays[0];
-  const llvm_ir::IrArray& output_array = kernel_thunk_info.ir_arrays[1];
+  ASSIGN_OR_RETURN(llvm::Function * kernel,
+                   BuildKernelPrototype(
+                       llvm_module.get(), ir_emitter_context->gpu_device_info(),
+                       op_name, sanitized_kernel_name, kernel_arguments,
+                       launch_dimensions, ir_emitter.builder()));
+
+  std::vector<llvm_ir::IrArray> ir_arrays =
+      IrArraysFor(kernel, kernel_arguments);
+
+  const llvm_ir::IrArray& source_array = ir_arrays[0];
+  const llvm_ir::IrArray& output_array = ir_arrays[1];
   auto output_dim_arrays =
-      absl::Span<const llvm_ir::IrArray>(kernel_thunk_info.ir_arrays)
-          .subspan(2);
+      absl::Span<const llvm_ir::IrArray>(ir_arrays).subspan(2);
 
   llvm::Type* index_ty = GetIndexTypeForKernel(
       hlo, launch_dimensions.launch_bound(), ir_emitter.builder());
@@ -1095,7 +1101,7 @@ absl::StatusOr<ThunkSequence> EmitPadToStaticLLVMIR(
         array_index.Linearize(input_shape.dimensions(), ir_emitter.builder());
     auto if_in_dyn_bounds = llvm_ir::EmitIfThenElse(
         ir_emitter.builder()->CreateICmpULT(linearIndex, dyn_element_total),
-        llvm_ir::IrName(ir_name, "in_dyn_bounds"), ir_emitter.builder(), false);
+        llvm_ir::IrName(op_name, "in_dyn_bounds"), ir_emitter.builder(), false);
     // Set IR builder insertion point to the body of the if
     // structure.
     llvm_ir::SetToFirstInsertPoint(if_in_dyn_bounds.true_block,
@@ -1116,8 +1122,16 @@ absl::StatusOr<ThunkSequence> EmitPadToStaticLLVMIR(
   RETURN_IF_ERROR(ParallelLoopEmitter(body_generator, data_shape,
                                       launch_dimensions, ir_emitter.builder(),
                                       kUnrollFactor)
-                      .EmitLoop(ir_name, index_ty));
-  return thunk_sequence;
+                      .EmitLoop(op_name, index_ty));
+
+  ASSIGN_OR_RETURN(
+      KernelSpec kernel_spec,
+      emitters::GetKernelSpec(sanitized_kernel_name, *hlo,
+                              &ir_emitter_context->buffer_assignment(),
+                              launch_dimensions.AsWorkDimensions()));
+  return KernelDefinition<LlvmKernelSource>(
+      std::move(kernel_spec),
+      LlvmKernelSource{std::move(llvm_context), std::move(llvm_module)});
 }
 
 // Input = {dynamic array(with dynamic dimension meta data at the
