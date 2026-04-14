@@ -192,8 +192,8 @@ class ThunkEmitter {
   absl::StatusOr<ThunkSequence> EmitReplicaOrPartitionId(
       const HloInstruction* hlo);
 
-  absl::StatusOr<ThunkSequence> EmitRngGetAndUpdateState(
-      const HloRngGetAndUpdateStateInstruction* hlo);
+  AsyncThunkSequence EmitRngGetAndUpdateState(
+      const HloRngGetAndUpdateStateInstruction* instr);
 
   absl::StatusOr<ThunkSequence> EmitSliceToDynamic(
       const HloCustomCallInstruction* hlo);

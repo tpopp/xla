@@ -38,6 +38,7 @@ limitations under the License.
 #include "absl/strings/str_format.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
+#include "xla/tsl/platform/status_macros.h"  // gloop
 #include "llvm/ADT/APInt.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/IR/Instructions.h"
@@ -113,6 +114,9 @@ limitations under the License.
 #include "xla/backends/gpu/runtime/while_thunk.h"
 #include "xla/backends/gpu/transforms/collectives/collective_ops_utils.h"
 #include "xla/codegen/emitters/kernel_arguments.h"
+#include "xla/codegen/kernel_definition.h"
+#include "xla/codegen/kernel_spec.h"
+#include "xla/codegen/llvm_kernel_source.h"
 #include "xla/core/host_offloading/host_offloading_executable.pb.h"
 #include "xla/ffi/attribute_map.h"
 #include "xla/hlo/ir/hlo_casting_utils.h"
@@ -174,7 +178,6 @@ limitations under the License.
 #include "tsl/platform/casts.h"
 #include "tsl/platform/human_readable_json.h"
 #include "triton/Dialect/Triton/IR/Dialect.h"
-#include "xla/tsl/platform/status_macros.h"
 
 namespace xla::gpu {
 namespace {
@@ -1423,16 +1426,30 @@ AsyncThunkSequence ThunkEmitter::EmitCallComputation(
   return EmitHloComputation(computation);
 }
 
-absl::StatusOr<ThunkSequence> ThunkEmitter::EmitRngGetAndUpdateState(
+AsyncThunkSequence ThunkEmitter::EmitRngGetAndUpdateState(
     const HloRngGetAndUpdateStateInstruction* instr) {
-  std::string ir_name = std::string(instr->name());
-  auto local_llvm_module = ir_emitter_context_->CreateLLVMModule(ir_name);
+  ASSIGN_OR_RETURN(emitters::KernelArguments kernel_arguments,
+                   emitters::KernelArguments::Create(
+                       ir_emitter_context_->buffer_assignment(),
+                       GetDefaultBufferAlignment(), instr));
 
-  TF_ASSIGN_OR_RETURN(auto thunk_sequence,
-                      EmitRngGetAndUpdateStateLLVMIR(
-                          instr, local_llvm_module.get(), ir_emitter_context_));
-  kernel_modules_.push_back(std::move(local_llvm_module));
-  return thunk_sequence;
+  ASSIGN_OR_RETURN(KernelDefinition<LlvmKernelSource> kernel_def,
+                   EmitRngGetAndUpdateStateLLVMIR(instr, ir_emitter_context_,
+                                                  kernel_arguments));
+
+  KernelSpec spec = kernel_def.spec();
+  ASSIGN_OR_RETURN(
+      LaunchDimensions launch_dimensions,
+      LaunchDimensions::FromWorkDimensions(spec.work_dimensions()));
+
+  return ir_emitter_context_->kernel_compiler()
+      ->Compile(Thunk::ThunkInfo::WithProfileAnnotation(
+                    instr, ir_emitter_context_->GetNextThunkId()),
+                std::move(kernel_def).TakeSource(), std::string(spec.name()),
+                kernel_arguments, launch_dimensions)
+      .Map([](std::unique_ptr<Thunk> thunk) {
+        return ThunkSequence::Of(std::move(thunk));
+      });
 }
 
 AsyncThunkSequence ThunkEmitter::EmitSort(const HloSortInstruction* sort) {
