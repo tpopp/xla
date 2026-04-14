@@ -610,13 +610,6 @@ absl::StatusOr<TensorValue> EmitTiledHloInstruction(
     operands.push_back(emitter_ctx.TiledHloToTensorValue(*operand));
   }
   switch (hlo->opcode()) {
-    case HloOpcode::kTranspose: {
-      ASSIGN_OR_RETURN(auto static_tile_sizes,
-                       tiled_hlo.tile().GetStaticTileSizes());
-      auto padded_tile_sizes = GetPaddedTileSizes(static_tile_sizes);
-      return EmitTranspose(b, padded_tile_sizes, hlo->dimensions(),
-                           mlir::cast<TensorValue>(operands[0]));
-    }
     case HloOpcode::kBroadcast: {
       return EmitBroadcast(b, tiled_hlo, mlir::cast<TensorValue>(operands[0]));
     }
@@ -633,11 +626,16 @@ absl::StatusOr<TensorValue> EmitTiledHloInstruction(
     case HloOpcode::kIota: {
       return EmitIota(emitter_ctx, tiled_hlo);
     }
+    case HloOpcode::kPad: {
+      return EmitPad(emitter_ctx, tiled_hlo);
+    }
     case HloOpcode::kSlice: {
       return emitter_ctx.TiledHloToTensorValue(*tiled_hlo.operand(0));
     }
-    case HloOpcode::kPad: {
-      return EmitPad(emitter_ctx, tiled_hlo);
+    case HloOpcode::kTranspose: {
+      ASSIGN_OR_RETURN(auto tile_sizes, tiled_hlo.tile().GetStaticTileSizes());
+      return EmitTranspose(b, tile_sizes, hlo->dimensions(),
+                           mlir::cast<TensorValue>(operands[0]));
     }
     default:
       break;
