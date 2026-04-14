@@ -50,8 +50,6 @@ limitations under the License.
 #include "llvm/ADT/SmallBitVector.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/SmallVector.h"
-#include "mlir/IR/AffineExpr.h"
-#include "mlir/IR/AffineMap.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/Support/LLVM.h"
 #include "xla/codegen/tiling/constraint_expression.h"
@@ -87,7 +85,6 @@ namespace xla {
 
 namespace {
 
-using ::mlir::AffineExpr;
 using ::mlir::MLIRContext;
 
 // Tiling of the output of a fusion (computation). It is a mapping from the tile
@@ -172,9 +169,9 @@ absl::StatusOr<OutputTilingInfo> ComputeOutputTilingInfo(
   llvm::SmallVector<int64_t> outer_loop_bounds(num_tiling_parameters, 1);
   std::vector<IndexingMap::Variable> dim_vars(num_tiling_parameters,
                                               ignore_variable);
-  llvm::SmallVector<AffineExpr> tiled_dims(
-      num_tiling_parameters, mlir::getAffineConstantExpr(0, mlir_context));
-  llvm::SmallVector<std::pair<mlir::AffineExpr, Interval>> constraints;
+  llvm::SmallVector<SymbolicExpr> tiled_dims(
+      num_tiling_parameters, CreateSymbolicConstant(0, mlir_context));
+  llvm::SmallVector<std::pair<SymbolicExpr, Interval>> constraints;
 
   std::vector<Interval> all_dim_bounds = root_indexing.GetDimensionBounds();
   std::vector<DimensionInfo> iteration_space;
@@ -205,7 +202,7 @@ absl::StatusOr<OutputTilingInfo> ComputeOutputTilingInfo(
       CHECK_EQ(parent_output_tile_dim_bounds->size(),
                num_tiling_parameters);  // Crash OK
       constraints.push_back(
-          {mlir::getAffineDimExpr(dim_id, mlir_context),
+          {CreateDimExpr(dim_id, mlir_context),
            Interval{dim_bounds.lower / tile_size, upper_bound - 1}});
       upper_bound = parent_output_tile_dim_bounds.value()[dim_id].upper + 1;
     } else if (dim_bounds.lower != 0) {
@@ -222,15 +219,14 @@ absl::StatusOr<OutputTilingInfo> ComputeOutputTilingInfo(
     // TODO(b/393299275): naming is not correct as that might also be a nested
     // tile parameter.
     dim_vars[dim_id] = {0, upper_bound - 1, absl::StrCat("pid_", dim_id)};
-    tiled_dims[dim_id] =
-        tile_size * mlir::getAffineDimExpr(dim_id, mlir_context);
+    tiled_dims[dim_id] = tile_size * CreateDimExpr(dim_id, mlir_context);
   }
 
   IndexingMap output_tile_offset_indexing{
-      mlir::AffineMap::get(
-          /*dimCount=*/num_tiling_parameters,
-          /*symbolCount=*/root_indexing.GetRTVarsCount(),
-          /*results=*/tiled_dims, mlir_context),
+      SymbolicMap::Get(mlir_context,
+                       /*num_dimensions=*/num_tiling_parameters,
+                       /*num_symbols=*/root_indexing.GetRTVarsCount(),
+                       /*exprs=*/tiled_dims),
       dim_vars, /*range_vars=*/{}, /*rt_vars=*/root_indexing.GetRTVars(),
       constraints};
 
@@ -845,7 +841,7 @@ absl::StatusOr<IndexingMap> IndexingMapForRootInstruction(
       InputSpaceForParameterMapping(parameter_mapping);
   int64_t num_output_parameters = root.shape().dimensions().size();
 
-  std::vector<AffineExpr> result_exprs;
+  llvm::SmallVector<SymbolicExpr> result_exprs;
   result_exprs.reserve(num_output_parameters);
 
   int64_t dim_offset = 0;
@@ -856,14 +852,14 @@ absl::StatusOr<IndexingMap> IndexingMapForRootInstruction(
       for (int64_t parameter_index = num_hidden_parameters;
            parameter_index < num_tiling_parameters; ++parameter_index) {
         result_exprs.push_back(
-            mlir::getAffineDimExpr(dim_offset + parameter_index, mlir_context));
+            CreateDimExpr(dim_offset + parameter_index, mlir_context));
       }
       CHECK_EQ(result_exprs.size(), num_output_parameters);
 
-      mlir::AffineMap affine_map = mlir::AffineMap::get(
-          input_space.size(), /*symbolCount=*/0, result_exprs, mlir_context);
+      SymbolicMap symbolic_map = SymbolicMap::Get(
+          mlir_context, input_space.size(), /*num_symbols=*/0, result_exprs);
 
-      return IndexingMap::FromTensorSizes(affine_map, std::move(input_space),
+      return IndexingMap::FromTensorSizes(symbolic_map, std::move(input_space),
                                           /*symbol_upper_bounds=*/{});
     }
     dim_offset += num_tiling_parameters;
@@ -1002,7 +998,7 @@ IndexingMap InsertTilingParameterForContractingDimensions(
     int64_t num_inputs = outermost_fusion_root_to_operand.GetDimVarsCount();
     int64_t num_outputs = map_without_range_variables.GetDimVarsCount();
     std::vector<int64_t> tileable_sizes;
-    std::vector<mlir::AffineExpr> results;
+    llvm::SmallVector<SymbolicExpr> results;
     tileable_sizes.reserve(num_inputs);
     results.reserve(num_outputs);
 
@@ -1010,20 +1006,20 @@ IndexingMap InsertTilingParameterForContractingDimensions(
          llvm::enumerate(outermost_fusion_root_to_operand.GetDimVars())) {
       const Interval& bounds = dim_var.bounds;
       tileable_sizes.push_back(bounds.upper + 1);
-      results.push_back(mlir::getAffineDimExpr(i, ctx));
+      results.push_back(CreateDimExpr(i, ctx));
     }
 
     for (const int64_t symbol_id : symbols_to_remove) {
-      mlir::AffineExpr new_result = mlir::getAffineDimExpr(
-          parameter_index_by_symbol_position.at(symbol_id), ctx);
+      SymbolicExpr new_result =
+          CreateDimExpr(parameter_index_by_symbol_position.at(symbol_id), ctx);
       results.push_back(new_result);
     }
 
-    mlir::AffineMap first_affine_map =
-        mlir::AffineMap::get(num_inputs, /*symbolCount=*/0, results, ctx);
+    SymbolicMap first_symbolic_map =
+        SymbolicMap::Get(ctx, num_inputs, /*num_symbols=*/0, results);
 
     IndexingMap first_indexing_map =
-        IndexingMap::FromTensorSizes(first_affine_map, tileable_sizes, {});
+        IndexingMap::FromTensorSizes(first_symbolic_map, tileable_sizes, {});
 
     return ComposeIndexingMaps(first_indexing_map, map_without_range_variables);
   }
