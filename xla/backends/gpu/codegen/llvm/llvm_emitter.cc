@@ -88,6 +88,7 @@ limitations under the License.
 #include "xla/status_macros.h"
 #include "xla/stream_executor/device_description.h"
 #include "xla/stream_executor/gpu/tma_metadata.h"
+#include "xla/tsl/concurrency/future.h"
 #include "xla/util.h"
 #include "xla/xla_data.pb.h"
 #include "tsl/platform/fingerprint.h"
@@ -803,8 +804,8 @@ void AppendGlobalConstant(llvm::Module* module, int64_t num_elements,
   module->insertGlobalVariable(global_for_const);
 }
 
-absl::StatusOr<ThunkSequence> EmitBitonicSortLLVMIR(
-    const HloSortInstruction* sort, IrEmitterContext* ir_emitter_context) {
+AsyncThunkSequence EmitBitonicSortLLVMIR(const HloSortInstruction* sort,
+                                         IrEmitterContext* ir_emitter_context) {
   std::string op_name(sort->name());
 
   int64_t dimension_to_sort = sort->sort_dimension();
@@ -904,7 +905,7 @@ absl::StatusOr<ThunkSequence> EmitBitonicSortLLVMIR(
   LaunchDimensions tiled_launch_dimensions(num_blocks, kThreadsPerBlock);
   VLOG(2) << absl::StreamFormat("%s launch dims: %d blocks, %d threads/block",
                                 op_name, num_blocks, kThreadsPerBlock);
-  ThunkSequence thunks;
+  std::vector<tsl::Future<std::unique_ptr<Thunk>>> thunks;
   bool emit_iota_operands = true;
   auto emit_thunk = [&](absl::Span<const int64_t> xor_masks) -> absl::Status {
     VLOG(2) << absl::StreamFormat(
@@ -935,17 +936,11 @@ absl::StatusOr<ThunkSequence> EmitBitonicSortLLVMIR(
                                  : standard_num_iterations_in_sort_dim));
     emit_iota_operands = false;
 
-    ASSIGN_OR_RETURN(
-        std::unique_ptr<Thunk> thunk,
-        ir_emitter_context->kernel_compiler()
-            ->Compile(
-                Thunk::ThunkInfo::WithProfileAnnotation(
-                    hlo_with_buffers, ir_emitter_context->GetNextThunkId()),
-                std::move(llvm_kernel_source), sanitized_kernel_name,
-                kernel_arguments, launch_dimensions)
-            .Await());
-
-    thunks.push_back(std::move(thunk));
+    thunks.push_back(ir_emitter_context->kernel_compiler()->Compile(
+        Thunk::ThunkInfo::WithProfileAnnotation(
+            hlo_with_buffers, ir_emitter_context->GetNextThunkId()),
+        std::move(llvm_kernel_source), sanitized_kernel_name, kernel_arguments,
+        launch_dimensions));
 
     return absl::OkStatus();
   };
@@ -972,7 +967,10 @@ absl::StatusOr<ThunkSequence> EmitBitonicSortLLVMIR(
   if (!xor_masks.empty()) {
     RETURN_IF_ERROR(emit_thunk(xor_masks));
   }
-  return thunks;
+  return tsl::JoinFutures(absl::MakeSpan(thunks))
+      .Map([](std::vector<std::unique_ptr<Thunk>> thunks) {
+        return ThunkSequence(std::move(thunks));
+      });
 }
 
 // Input = {dynamic array(with dynamic dimension meta data at the

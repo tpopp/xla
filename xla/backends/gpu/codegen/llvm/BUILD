@@ -53,6 +53,7 @@ cc_library(
         "//xla/service/llvm_ir:tuple_ops",
         "//xla/stream_executor:device_description",
         "//xla/stream_executor/gpu:tma_metadata",
+        "//xla/tsl/concurrency:future",
         "//xla/tsl/platform:status_macros",
         "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/log",
