@@ -45,6 +45,7 @@ limitations under the License.
 #include "xla/service/hlo.pb.h"
 #include "xla/shape.h"
 #include "xla/stream_executor/abi/executable_abi_version.h"
+#include "xla/tsl/lib/strings/proto_serialization.h"
 #include "xla/tsl/platform/errors.h"
 #include "xla/tsl/platform/statusor.h"
 #include "xla/util.h"
@@ -58,7 +59,12 @@ absl::StatusOr<std::string> StreamExecutorExecutable::SerializeExecutable()
     ExecutableAndOptionsProto proto;
     TF_ASSIGN_OR_RETURN(*proto.mutable_compile_options(),
                         compile_options_.ToProto());
-    return proto.SerializeAsString();
+    std::string result;
+    if (!tsl::SerializeToStringDeterministic(proto, &result)) {
+      return absl::InternalError(
+          "Failed to serialize ExecutableAndOptionsProto");
+    }
+    return result;
   }
   std::string serialized;
   if (std::holds_alternative<std::vector<std::unique_ptr<CompiledModule>>>(
@@ -95,7 +101,11 @@ absl::StatusOr<std::string> StreamExecutorExecutable::SerializeExecutable()
   *proto.mutable_serialized_executable() = std::move(serialized);
   TF_ASSIGN_OR_RETURN(*proto.mutable_compile_options(),
                       compile_options_.ToProto());
-  return proto.SerializeAsString();
+  std::string result;
+  if (!tsl::SerializeToStringDeterministic(proto, &result)) {
+    return absl::InternalError("Failed to serialize ExecutableAndOptionsProto");
+  }
+  return result;
 }
 
 absl::StatusOr<absl::flat_hash_map<std::string, PjRtValueType>>

@@ -2163,6 +2163,7 @@ cc_library(
         "//xla/service:executable",
         "//xla/stream_executor:device_description",
         "//xla/stream_executor:platform",
+        "//xla/tsl/lib/strings:proto_serialization",
         "//xla/tsl/platform:statusor",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings:string_view",
