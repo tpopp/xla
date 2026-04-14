@@ -56,6 +56,7 @@ limitations under the License.
 #include "xla/codegen/xtile/ir/xtile_ops.h"
 #include "xla/hlo/analysis/indexing_map.h"
 #include "xla/hlo/analysis/indexing_map_serialization.h"  // IWYU pragma: keep
+#include "xla/hlo/analysis/interval.h"
 #include "xla/hlo/ir/hlo_casting_utils.h"
 #include "xla/hlo/ir/hlo_computation.h"
 #include "xla/hlo/ir/hlo_instruction.h"
@@ -382,7 +383,8 @@ absl::StatusOr<TensorValue> EmitDot(EmitterContext& emitter_ctx,
     Value iv = for_op.getInductionVar();
     Value iv_i32 = Cast(b, for_op.getInductionVar(), b.getI32Type());
     CHECK(emitter_ctx.MapSymbolIdToSequentialDimValue(
-        sequential_dim_ids.front(), iv));
+        ge::TiledDimId(sequential_dim_ids.front()), iv,
+        Interval{0, loop_iteration_count.front() - 1}));
 
     // Emit the dot region.
     const ge::TiledHloInstruction* lhs_operand = tiled_dot.operand(0);

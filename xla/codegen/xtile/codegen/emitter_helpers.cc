@@ -227,6 +227,9 @@ absl::StatusOr<SmallVector<Value>> EmitterContext::EvaluateTilingParameters(
 
   int64_t symbol_count = 0;
   SmallVector<Value> symbol_values;
+  symbol_values.reserve(dim_ids.size() + symbol_ids.size());
+  std::vector<IndexingMap::Variable> symbol_variables;
+  symbol_variables.reserve(dim_ids.size() + symbol_ids.size());
 
   // Remap parallel dimensions.
   SmallVector<SymbolicExpr> dim_replacements;
@@ -241,7 +244,10 @@ absl::StatusOr<SmallVector<Value>> EmitterContext::EvaluateTilingParameters(
         case ge::TilingSpace::DimensionSemantics::kSequential: {
           dim_replacements[dim] =
               CreateSymbolExpr(symbol_count++, /*num_dims=*/1, mlir_context);
-          symbol_values.push_back(GetSequentialDimValue(dim));
+          auto [value, range] = GetSequentialDimValue(ge::TiledDimId(dim));
+          symbol_values.push_back(value);
+          symbol_variables.push_back(
+              IndexingMap::Variable{range, absl::StrCat("k_", dim)});
           break;
         }
         default:
@@ -263,6 +269,9 @@ absl::StatusOr<SmallVector<Value>> EmitterContext::EvaluateTilingParameters(
       symbol_values.push_back(TensorValueToIndexTypeScalar(b_, tensor_value));
       symbol_replacements[symbol_id] =
           CreateSymbolExpr(symbol_count++, /*num_dims=*/1, mlir_context);
+      symbol_variables.push_back(
+          IndexingMap::Variable{0, std::numeric_limits<int64_t>::max(),
+                                absl::StrCat("rt_", symbol_id)});
     }
   }
 
@@ -276,10 +285,7 @@ absl::StatusOr<SmallVector<Value>> EmitterContext::EvaluateTilingParameters(
       SymbolicMap::Get(mlir_context, /*num_dimensions=*/1, symbol_count,
                        updated_exprs),
       {IndexingMap::Variable(schedule_.pid_bounds, "pid")},
-      std::vector<IndexingMap::Variable>(
-          symbol_count,
-          IndexingMap::Variable(0, std::numeric_limits<int64_t>::max())),
-      {});
+      std::move(symbol_variables), {});
   SmallVector<Value> dims{Cast(b_, pid_, pid_.getType())};
   return emitters::ApplyIndexing(offset_indexing_map, /*dims=*/dims,
                                  /*symbols=*/symbol_values, b_);
