@@ -246,12 +246,6 @@ class IndexingMap {
 
   // Evaluates the constraints at a given point and returns `true` if all
   // constraints are satisfied.
-  // Deprecated. TODO: b/446856820 - Remove once fully migrated to SymbolicMap.
-  ABSL_DEPRECATED("Use the overload with SymbolicExpr arguments instead")
-  bool ConstraintsSatisfied(
-      llvm::ArrayRef<mlir::AffineExpr> dim_const_exprs,
-      llvm::ArrayRef<mlir::AffineExpr> symbol_const_exprs) const;
-
   bool ConstraintsSatisfied(
       llvm::ArrayRef<SymbolicExpr> dim_const_exprs,
       llvm::ArrayRef<SymbolicExpr> symbol_const_exprs) const;

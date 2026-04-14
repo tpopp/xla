@@ -1034,17 +1034,6 @@ void IndexingMap::EraseConstraint(SymbolicExpr expr) {
   constraints_.erase(expr);
 }
 
-// TODO: b/446856820  - Remove this function once all the users are migrated to
-// the symbolic map getters.
-bool IndexingMap::ConstraintsSatisfied(
-    ArrayRef<mlir::AffineExpr> dim_const_exprs,
-    ArrayRef<mlir::AffineExpr> symbol_const_exprs) const {
-  return ConstraintsSatisfied(
-      AffineExprsToSymbolicExprs(dim_const_exprs, symbolic_map_.GetNumDims()),
-      AffineExprsToSymbolicExprs(symbol_const_exprs,
-                                 symbolic_map_.GetNumDims()));
-}
-
 bool IndexingMap::ConstraintsSatisfied(
     ArrayRef<SymbolicExpr> dim_const_exprs,
     ArrayRef<SymbolicExpr> symbol_const_exprs) const {

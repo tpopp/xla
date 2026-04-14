@@ -25,7 +25,6 @@ limitations under the License.
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
-#include "mlir/IR/AffineExpr.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/IRMapping.h"
@@ -79,9 +78,9 @@ struct PeelWorkgroupLoopPattern : public mlir::OpRewritePattern<xla::LoopOp> {
       }
     }
 
-    std::vector<mlir::AffineExpr> dimension_upper_bounds =
+    std::vector<SymbolicExpr> dimension_upper_bounds =
         GetDimensionUpperBounds(indexing_map, ctx);
-    std::vector<mlir::AffineExpr> symbol_upper_bounds =
+    std::vector<SymbolicExpr> symbol_upper_bounds =
         GetSymbolUpperBounds(indexing_map, ctx);
 
     auto work_group_dims = GatherWorkGroupDims(loop_op);
@@ -107,7 +106,7 @@ struct PeelWorkgroupLoopPattern : public mlir::OpRewritePattern<xla::LoopOp> {
              query_dimension_upper != 0) {
         query_dimension_upper--;
         dimension_upper_bounds[dim_id] =
-            mlir::getAffineConstantExpr(query_dimension_upper, ctx);
+            CreateSymbolicConstant(query_dimension_upper, ctx);
       }
 
       if (query_dimension_upper == 0 ||
@@ -161,21 +160,21 @@ struct PeelWorkgroupLoopPattern : public mlir::OpRewritePattern<xla::LoopOp> {
   }
 
  private:
-  static std::vector<mlir::AffineExpr> GetDimensionUpperBounds(
+  static std::vector<SymbolicExpr> GetDimensionUpperBounds(
       const xla::IndexingMap& indexing_map, mlir::MLIRContext* ctx) {
-    std::vector<mlir::AffineExpr> dimension_upper_bounds;
+    std::vector<SymbolicExpr> dimension_upper_bounds;
     for (auto [lower, upper] : indexing_map.GetDimensionBounds()) {
-      dimension_upper_bounds.push_back(mlir::getAffineConstantExpr(upper, ctx));
+      dimension_upper_bounds.push_back(CreateSymbolicConstant(upper, ctx));
     }
 
     return dimension_upper_bounds;
   }
 
-  static std::vector<mlir::AffineExpr> GetSymbolUpperBounds(
+  static std::vector<SymbolicExpr> GetSymbolUpperBounds(
       const xla::IndexingMap& indexing_map, mlir::MLIRContext* ctx) {
-    std::vector<mlir::AffineExpr> symbol_upper_bounds;
+    std::vector<SymbolicExpr> symbol_upper_bounds;
     for (auto [lower, upper] : indexing_map.GetSymbolBounds()) {
-      symbol_upper_bounds.push_back(mlir::getAffineConstantExpr(upper, ctx));
+      symbol_upper_bounds.push_back(CreateSymbolicConstant(upper, ctx));
     }
 
     return symbol_upper_bounds;
