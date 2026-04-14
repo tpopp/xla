@@ -227,12 +227,6 @@ class IndexingMap {
   std::vector<Interval> GetSymbolBounds() const;
   int64_t GetSymbolCount() const { return symbolic_map_.GetNumSymbols(); }
 
-  // TODO: b/446856820 - Remove this method once we fully migrate to
-  // SymbolicMap and rename the GetSymbolicConstraints to GetConstraints.
-  // Getters for affine expression constraints.
-  ABSL_DEPRECATED("Use GetSymbolicConstraints() instead")
-  llvm::MapVector<mlir::AffineExpr, Interval> GetConstraints() const;
-
   // Getters for symbolic expression constraints.
   const llvm::MapVector<SymbolicExpr, Interval>& GetSymbolicConstraints()
       const {

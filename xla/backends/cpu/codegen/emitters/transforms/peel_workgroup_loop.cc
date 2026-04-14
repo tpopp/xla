@@ -40,6 +40,7 @@ limitations under the License.
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "xla/codegen/emitters/ir/xla_ops.h"
 #include "xla/hlo/analysis/indexing_map.h"
+#include "xla/hlo/analysis/symbolic_expr.h"
 
 namespace xla::cpu {
 
@@ -70,7 +71,8 @@ struct PeelWorkgroupLoopPattern : public mlir::OpRewritePattern<xla::LoopOp> {
 
     // We need to check this to be able to just check the constraints are
     // satisfied by setting the non-query dimensions to their upper bound.
-    for (const auto& [constraint, interval] : indexing_map.GetConstraints()) {
+    for (const auto& [constraint, interval] :
+         indexing_map.GetSymbolicConstraints()) {
       if (!IsMonotonicIncreasing(constraint)) {
         return rewriter.notifyMatchFailure(
             loop_op, "Indexing map may not be monotonic increasing.");
@@ -183,23 +185,22 @@ struct PeelWorkgroupLoopPattern : public mlir::OpRewritePattern<xla::LoopOp> {
   // that it may return false in some cases where the constraint may actually be
   // monotonic increasing but it will never return true in the case where it is
   // monotonically decreasing.
-  static bool IsMonotonicIncreasing(const mlir::AffineExpr& constraint) {
+  static bool IsMonotonicIncreasing(const SymbolicExpr& constraint) {
     bool is_monotonic_increasing = true;
-    constraint.walk([&is_monotonic_increasing](mlir::AffineExpr expr) {
-      if (expr.getKind() == mlir::AffineExprKind::Mod) {
+    constraint.Walk([&is_monotonic_increasing](SymbolicExpr expr) {
+      if (expr.GetType() == SymbolicExprType::kMod) {
         is_monotonic_increasing = false;
         return;
       }
-      if (auto binary_op = mlir::dyn_cast<mlir::AffineBinaryOpExpr>(expr)) {
-        auto is_negative_constant = [&](mlir::AffineExpr expr) {
-          if (auto const_expr =
-                  mlir::dyn_cast<mlir::AffineConstantExpr>(expr)) {
-            return const_expr.getValue() < 0;
+      if (expr.IsBinaryOp()) {
+        auto is_negative_constant = [&](SymbolicExpr expr) {
+          if (expr.GetType() == SymbolicExprType::kConstant) {
+            return expr.GetValue() < 0;
           }
           return false;
         };
-        if (is_negative_constant(binary_op.getLHS()) ||
-            is_negative_constant(binary_op.getRHS())) {
+        if (is_negative_constant(expr.GetLHS()) ||
+            is_negative_constant(expr.GetRHS())) {
           is_monotonic_increasing = false;
           return;
         }
