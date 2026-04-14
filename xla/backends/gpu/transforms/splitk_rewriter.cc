@@ -412,12 +412,6 @@ class SplitkRewriterVisitor : public DfsHloRewriteVisitor {
 absl::StatusOr<bool> SplitkRewriter::RunImpl(
     HloModule* module,
     const absl::flat_hash_set<absl::string_view>& execution_threads) {
-  if (!module->config()
-           .debug_options()
-           .xla_gpu_experimental_enable_split_k_rewrite()) {
-    return false;
-  }
-
   bool changed = false;
   for (HloComputation* computation :
        module->MakeNonfusionComputations(execution_threads)) {

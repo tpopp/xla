@@ -473,7 +473,6 @@ DebugOptions DefaultDebugOptionsIgnoringFlags() {
   opts.set_xla_enable_scoped_logging_timers(true);
   opts.set_xla_unsupported_crash_on_hlo_pass_noop_change(false);
   opts.set_xla_gpu_experimental_enable_collective_multi_streaming(false);
-  opts.set_xla_gpu_experimental_enable_split_k_rewrite(true);
   opts.set_xla_gpu_experimental_force_split_k(0);
   opts.set_xla_gpu_experimental_enable_triton_warp_specialization(false);
   opts.set_xla_detect_unstable_reductions(DebugOptions::DETECTION_MODE_NONE);
@@ -2842,13 +2841,6 @@ void MakeDebugOptionsFlags(std::vector<tsl::Flag>* flag_list,
       "If non empty will interpret this variable as a path for performance "
       "tables for matmuls. Expects `xla.gpu.DeviceHloInstructionProfiles` "
       "proto."));
-  flag_list->push_back(tsl::Flag(
-      "xla_gpu_experimental_enable_split_k_rewrite",
-      bool_setter_for(
-          &DebugOptions::set_xla_gpu_experimental_enable_split_k_rewrite),
-      debug_options->xla_gpu_experimental_enable_split_k_rewrite(),
-      "Enable the pass that splits GEMMs that underutilize the GPU load by "
-      "splitting the K dimension using a heuristic."));
   flag_list->push_back(
       tsl::Flag("xla_gpu_experimental_force_split_k", setter_for_force_split_k,
                 debug_options->xla_gpu_experimental_force_split_k(),

@@ -62,9 +62,6 @@ ENTRY test {
 
   TF_ASSERT_OK_AND_ASSIGN(std::unique_ptr<HloModule> module,
                           ParseAndReturnVerifiedModule(hlo_string));
-  module->mutable_config()
-      .mutable_debug_options()
-      .set_xla_gpu_experimental_enable_split_k_rewrite(true);
 
   TF_ASSERT_OK_AND_ASSIGN(bool changed,
                           rewriter_.HloModulePass::Run(module.get()));
@@ -91,9 +88,6 @@ TEST_F(SplitkRewriterTest, PaddingIsInserted) {
 
   TF_ASSERT_OK_AND_ASSIGN(std::unique_ptr<HloModule> module,
                           ParseAndReturnVerifiedModule(hlo_string));
-  module->mutable_config()
-      .mutable_debug_options()
-      .set_xla_gpu_experimental_enable_split_k_rewrite(true);
 
   TF_ASSERT_OK_AND_ASSIGN(bool changed,
                           rewriter_.HloModulePass::Run(module.get()));
@@ -119,9 +113,6 @@ TEST_F(SplitkRewriterTest, AccumulatorTypeIsDifferentFromOutputType) {
 
   TF_ASSERT_OK_AND_ASSIGN(std::unique_ptr<HloModule> module,
                           ParseAndReturnVerifiedModule(hlo_string));
-  module->mutable_config()
-      .mutable_debug_options()
-      .set_xla_gpu_experimental_enable_split_k_rewrite(true);
 
   TF_ASSERT_OK_AND_ASSIGN(bool changed,
                           rewriter_.HloModulePass::Run(module.get()));
@@ -148,9 +139,6 @@ TEST_F(SplitkRewriterTest, NoSplitKIfEnoughWork) {
 
   TF_ASSERT_OK_AND_ASSIGN(std::unique_ptr<HloModule> module,
                           ParseAndReturnVerifiedModule(hlo_string));
-  module->mutable_config()
-      .mutable_debug_options()
-      .set_xla_gpu_experimental_enable_split_k_rewrite(true);
 
   TF_ASSERT_OK_AND_ASSIGN(bool changed,
                           rewriter_.HloModulePass::Run(module.get()));
@@ -172,9 +160,6 @@ TEST_F(SplitkRewriterTest, DoNotSplitKS32) {
 
   TF_ASSERT_OK_AND_ASSIGN(std::unique_ptr<HloModule> module,
                           ParseAndReturnVerifiedModule(hlo_string));
-  module->mutable_config()
-      .mutable_debug_options()
-      .set_xla_gpu_experimental_enable_split_k_rewrite(true);
 
   TF_ASSERT_OK_AND_ASSIGN(bool changed,
                           rewriter_.HloModulePass::Run(module.get()));
@@ -198,9 +183,6 @@ ENTRY %main.2 (broadcast: f32[2,128,128], b.1: f32[128,2,128]) -> f32[2,128,128]
 
   TF_ASSERT_OK_AND_ASSIGN(std::unique_ptr<HloModule> module,
                           ParseAndReturnVerifiedModule(hlo_string));
-  module->mutable_config()
-      .mutable_debug_options()
-      .set_xla_gpu_experimental_enable_split_k_rewrite(true);
 
   CHECK_OK(splitk_rewriter.HloModulePass::Run(module.get()));
 }
@@ -218,9 +200,7 @@ TEST_F(SplitkRewriterTest, ForceSplitK) {
 
   TF_ASSERT_OK_AND_ASSIGN(std::unique_ptr<HloModule> module,
                           ParseAndReturnVerifiedModule(hlo_string));
-  module->mutable_config()
-      .mutable_debug_options()
-      .set_xla_gpu_experimental_enable_split_k_rewrite(true);
+
   module->mutable_config()
       .mutable_debug_options()
       .set_xla_gpu_experimental_force_split_k(2);
