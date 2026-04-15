@@ -352,7 +352,7 @@ absl::StatusOr<mlir::Type> GetMlirType(
 
 // Function to get the MLIR types from a HloFusionInstruction.
 absl::StatusOr<llvm::SmallVector<mlir::Type>> GetFnArgTypes(
-    mlir::ImplicitLocOpBuilder& b, const HloFusionInstruction* fusion,
+    mlir::ImplicitLocOpBuilder& b, const HloFusionInstruction& fusion,
     absl::Span<mlir::Type> opaque_args_types,
     const std::optional<stream_executor::GpuComputeCapability>& gpu_cc);
 

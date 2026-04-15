@@ -820,12 +820,12 @@ absl::StatusOr<Type> GetMlirType(
 }
 
 absl::StatusOr<SmallVector<Type>> GetFnArgTypes(
-    mlir::ImplicitLocOpBuilder& b, const HloFusionInstruction* fusion,
+    mlir::ImplicitLocOpBuilder& b, const HloFusionInstruction& fusion,
     absl::Span<mlir::Type> opaque_args_types,
     const std::optional<GpuComputeCapability>& gpu_cc) {
   SmallVector<Type> fn_arg_types;
 
-  auto hlo_computation = fusion->fused_instructions_computation();
+  auto hlo_computation = fusion.fused_instructions_computation();
   // Add parameter types.
   for (HloInstruction* p : hlo_computation->parameter_instructions()) {
     ASSIGN_OR_RETURN(Type ir_type,
@@ -834,7 +834,7 @@ absl::StatusOr<SmallVector<Type>> GetFnArgTypes(
   }
 
   // Add result types.
-  for (const auto& [index, shape] : ShapeUtil::GetLeafShapes(fusion->shape())) {
+  for (const auto& [index, shape] : ShapeUtil::GetLeafShapes(fusion.shape())) {
     ASSIGN_OR_RETURN(Type ir_type,
                      PrimitiveTypeToMlirType(b, shape.element_type(), gpu_cc));
     fn_arg_types.push_back(GetMemRefType(shape, ir_type));

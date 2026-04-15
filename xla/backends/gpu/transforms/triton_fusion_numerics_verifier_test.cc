@@ -132,7 +132,7 @@ ENTRY main{
         "num_stages":"1"}}}
 })";
 
-TEST_P(TritonFusionNumericsVerifierTest, VerifyExactSoftmaxFusionNumerics) {
+TEST_P(TritonFusionNumericsVerifierTest, Softmax) {
   auto module = Module(kSoftmaxHlo,
                        primitive_util::LowercasePrimitiveTypeName(GetParam()));
 
@@ -142,13 +142,12 @@ TEST_P(TritonFusionNumericsVerifierTest, VerifyExactSoftmaxFusionNumerics) {
   EXPECT_OK(verifier.Run(module.get(), /*execution_threads=*/{}));
 }
 
-TEST_P(TritonFusionNumericsVerifierTest, VerifyNestedGemmNumerics) {
+TEST_P(TritonFusionNumericsVerifierTest, DotAlgorithms) {
   if (GetParam() == F64) {
-    // TODO(b/446827313): f64 fails at the moment as
     // 'Algorithm not supported by the ElementalIrEmitter: ALG_DOT_F64_F64_F64'.
     GTEST_SKIP() << "Skipping test for F64.";
   }
-  constexpr absl::string_view kNestedGemmFusionHloText = R"(
+  constexpr absl::string_view kHlo = R"hlo(
 fdot {
   fdot.p0 = $0[16,16] parameter(0)
   fdot.p1 = $0[16,16] parameter(1)
@@ -171,9 +170,9 @@ ENTRY entry {
           "num_warps":"1",
           "num_ctas":"1",
           "num_stages":"1"}}}
-})";
-  auto module = Module(kNestedGemmFusionHloText,
-                       primitive_util::LowercasePrimitiveTypeName(GetParam()));
+})hlo";
+  auto module =
+      Module(kHlo, primitive_util::LowercasePrimitiveTypeName(GetParam()));
 
   EXPECT_NE(TritonFusion(*module), nullptr);
   auto verifier = TritonFusionNumericsVerifier(
@@ -181,8 +180,8 @@ ENTRY entry {
   EXPECT_OK(verifier.Run(module.get(), /*execution_threads=*/{}));
 }
 
-TEST_P(TritonFusionNumericsVerifierTest, VerifyMultiOutputFusionNumerics) {
-  constexpr absl::string_view kMultiOutputFusionHloText = R"(
+TEST_P(TritonFusionNumericsVerifierTest, MultiOutput) {
+  constexpr absl::string_view kHlo = R"hlo(
 HloModule m
 fusion_computation {
   param_0 = $0[127,125]{1,0} parameter(0)
@@ -202,9 +201,9 @@ ENTRY main{
         "num_warps":"1",
         "num_ctas":"1",
         "num_stages":"1"}}}
-})";
-  auto module = Module(kMultiOutputFusionHloText,
-                       primitive_util::LowercasePrimitiveTypeName(GetParam()));
+})hlo";
+  auto module =
+      Module(kHlo, primitive_util::LowercasePrimitiveTypeName(GetParam()));
 
   EXPECT_NE(TritonFusion(*module), nullptr);
   auto verifier = TritonFusionNumericsVerifier(
@@ -212,7 +211,7 @@ ENTRY main{
   EXPECT_OK(verifier.Run(module.get(), /*execution_threads=*/{}));
 }
 
-TEST_P(TritonFusionNumericsVerifierTest, VerifyMultipleNestedFusionNumerics) {
+TEST_P(TritonFusionNumericsVerifierTest, DotOfConcatenate) {
   constexpr absl::string_view kMultiOutputFusionHloText = R"(
 HloModule m
 gemm_computation (p0: bf16[128,512], p1: bf16[256,512], p2: bf16[512,512]) -> bf16[384,512] {
@@ -251,18 +250,15 @@ ENTRY main (p0: bf16[128,512], p1: bf16[256,512], p2: bf16[512,512]) -> bf16[384
   EXPECT_OK(verifier.Run(module.get(), /*execution_threads=*/{}));
 }
 
-TEST_F(TritonFusionNumericsVerifierTest, CheckMismatch) {
-  // This test intentionally compares two different Triton modules to each
-  // other. This is to test that the verifier functions correctly catch and
-  // report mismatches.
+TEST_F(TritonFusionNumericsVerifierTest, DetectMismatch) {
+  // This test intentionally compares two different Triton modules. This is to
+  // test that the verifier functions correctly catch and report mismatches.
   //
   // Note that as part of computing the two modules below, the numerics verifier
   // pass also runs individually for each module. These runs compare the
   // modules to the corresponding emitters generated version, which matches. In
-  // that sense this test covers what is being tested by
-  // VerifyExactSoftmaxFusionNumerics. The reason to keep two tests is that
-  // VerifyExactSoftmaxFusionNumerics is minimal and will be easier to debug if
-  // it fails.
+  // that sense this test covers what is being tested by `Softmax`. But
+  // `Softmax` is minimal and will be easier to debug if it fails.
 
   auto module_f64 = Module(kSoftmaxHlo, "f64");
   auto fusion_f64 = TritonFusion(*module_f64);
