@@ -2454,7 +2454,8 @@ SpmdPartitioningVisitor::CreateReplicaGroups(
 std::unique_ptr<CollectiveDeviceListBase>
 SpmdPartitioningVisitor::CreateReplicaGroups(
     const hlo_sharding_util::DeviceGroupTileAssignment& groups) {
-  if (groups.has_iota()) {
+  if (groups.has_iota() &&
+      groups.num_groups() * groups.num_devices_per_group() == num_partitions_) {
     IotaReplicaGroupList iota_list(
         groups.num_groups(), groups.num_devices_per_group(), *groups.iota());
     return std::make_unique<IotaReplicaGroupList>(
