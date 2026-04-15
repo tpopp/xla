@@ -25,6 +25,7 @@ cc_library(
         "//xla/service/gpu:__subpackages__",
     ],
     deps = [
+        ":triton_kernel_source",
         ":xtile_compiler",
         "//xla:shape_util",
         "//xla:util",
@@ -45,6 +46,7 @@ cc_library(
         "//xla/stream_executor:device_description",
         "//xla/stream_executor:launch_dim",
         "//xla/tsl/platform:errors",
+        "//xla/tsl/platform:gloop_status_macros",
         "//xla/tsl/platform:statusor",
         "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/log",
@@ -215,6 +217,7 @@ cc_library(
         ":collective_emitter",
         ":compilation_pipeline",
         ":lowering_util",
+        ":triton_kernel_source",
         "//xla:autotuning_proto_cc",
         "//xla:util",
         "//xla:xla_data_proto_cc",
@@ -255,6 +258,7 @@ cc_library(
         "//xla/tools:hlo_decomposer_lib",
         "//xla/tsl/framework/mlir:status_scoped_diagnostic_handler",
         "//xla/tsl/platform:errors",
+        "//xla/tsl/platform:gloop_status_macros",
         "//xla/tsl/platform:statusor",
         "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/functional:any_invocable",
@@ -422,6 +426,7 @@ cc_library(
     srcs = ["test_utils.cc"],
     hdrs = ["test_utils.h"],
     deps = [
+        ":triton_kernel_source",
         ":xtile_compiler",
         "//xla:status_macros",
         "//xla:util",
@@ -440,6 +445,7 @@ cc_library(
         "//xla/stream_executor:device_description",
         "//xla/stream_executor/cuda:cuda_compute_capability",
         "//xla/tsl/platform:errors",
+        "//xla/tsl/platform:gloop_status_macros",
         "//xla/tsl/platform:statusor",
         "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/log:check",
@@ -684,6 +690,18 @@ cc_library(
         "@llvm-project//mlir:TensorDialect",
         "@stablehlo//:stablehlo_ops",
         "@triton//:TritonDialects",
+    ],
+)
+
+cc_library(
+    name = "triton_kernel_source",
+    hdrs = ["triton_kernel_source.h"],
+    deps = [
+        "//xla/codegen:kernel_source",
+        "@com_google_absl//absl/functional:any_invocable",
+        "@com_google_absl//absl/log:check",
+        "@llvm-project//mlir:IR",
+        "@llvm-project//mlir:Support",
     ],
 )
 

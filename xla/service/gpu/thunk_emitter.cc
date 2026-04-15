@@ -63,6 +63,7 @@ limitations under the License.
 #include "xla/backends/gpu/codegen/llvm/llvm_emitter.h"
 #include "xla/backends/gpu/codegen/triton/collective_emitter.h"
 #include "xla/backends/gpu/codegen/triton/fusion.h"
+#include "xla/backends/gpu/codegen/triton/triton_kernel_source.h"
 #include "xla/backends/gpu/codegen/triton/xtile_compiler.h"
 #include "xla/backends/gpu/runtime/all_gather_thunk.h"
 #include "xla/backends/gpu/runtime/all_reduce_thunk.h"
@@ -181,6 +182,32 @@ limitations under the License.
 
 namespace xla::gpu {
 namespace {
+
+absl::StatusOr<TritonKernelSource> EmitTritonFrom(
+    const TritonCall& call, const std::string& kernel_name,
+    mlir::MLIRContext& mlir_context) {
+  VLOG(3) << "Generating: " << kernel_name;
+
+  mlir::OwningOpRef<mlir::ModuleOp> triton_module;
+  {
+    mlir::BaseScopedDiagnosticHandler diagnostic_handler(&mlir_context);
+    triton_module =
+        mlir::parseSourceString<mlir::ModuleOp>(call.ir, &mlir_context);
+    if (!triton_module) {
+      return absl::InvalidArgumentError(
+          absl::StrCat("Failed to parse Triton module: ",
+                       diagnostic_handler.ConsumeStatus().message(),
+                       "\ninput ir: \"", absl::CHexEscape(call.ir), "\""));
+    }
+  }
+
+  auto triton_fn = triton_module->lookupSymbol<mlir::triton::FuncOp>(call.name);
+  TF_RET_CHECK(triton_fn) << "Call name not found in the Triton module: "
+                          << call.name;
+  triton_fn.setName(kernel_name);
+
+  return TritonKernelSource(std::move(triton_module));
+}
 
 struct EmitCollectiveResult {
   std::unique_ptr<CollectiveKernelThunk> thunk;
@@ -1205,29 +1232,13 @@ absl::StatusOr<ThunkSequence> ThunkEmitter::EmitTritonCustomCall(
   auto generate = [this, &instr,
                    &mlir_context]() -> absl::StatusOr<KernelReuseCache::Entry> {
     LoadMlirDialectsForTriton(mlir_context);
-    auto call =
+    TritonCall call =
         TritonCall::Parse(instr->raw_backend_config_string(), &mlir_context);
-    auto kernel_name = ir_emitter_context_->GetSanitizedUniqueName(call.name);
-    VLOG(3) << "Generating: " << kernel_name;
+    std::string kernel_name =
+        ir_emitter_context_->GetSanitizedUniqueName(call.name);
 
-    mlir::OwningOpRef<mlir::ModuleOp> triton_module;
-    {
-      mlir::BaseScopedDiagnosticHandler diagnostic_handler(&mlir_context);
-      triton_module =
-          mlir::parseSourceString<mlir::ModuleOp>(call.ir, &mlir_context);
-      if (!triton_module) {
-        return absl::InvalidArgumentError(
-            absl::StrCat("Failed to parse Triton module: ",
-                         diagnostic_handler.ConsumeStatus().message(),
-                         "\ninput ir: \"", absl::CHexEscape(call.ir), "\""));
-      }
-    }
-
-    auto triton_fn =
-        triton_module->lookupSymbol<mlir::triton::FuncOp>(call.name);
-    TF_RET_CHECK(triton_fn)
-        << "Call name not found in the Triton module: " << call.name;
-    triton_fn.setName(kernel_name);
+    ASSIGN_OR_RETURN(TritonKernelSource triton_source,
+                     EmitTritonFrom(call, kernel_name, mlir_context));
 
     HloModule* hlo_module = instr->GetModule();
     // If emit_kernels if false (i.e., when deserializing an already
@@ -1246,20 +1257,19 @@ absl::StatusOr<ThunkSequence> ThunkEmitter::EmitTritonCustomCall(
         call.global_scratch_memory_size;
     block_level_parameters.is_tma_allowed = call.is_tma_allowed;
 
-    TF_ASSIGN_OR_RETURN(
-        auto result,
-        CompileTritonToLLVM(kernel_name, *hlo_module,
-                            ir_emitter_context_->gpu_device_info(),
-                            block_level_parameters, triton_module.get(),
-                            ir_emitter_context_->target_triple(),
-                            ir_emitter_context_->data_layout(),
-                            *ir_emitter_context_->llvm_context(), mlir_context,
-                            /*is_xla_fusion=*/false, emit_kernels));
+    ASSIGN_OR_RETURN(
+        TritonWrapperResult result,
+        CompileTritonToLLVM(
+            kernel_name, *hlo_module, ir_emitter_context_->gpu_device_info(),
+            block_level_parameters, ir_emitter_context_->target_triple(),
+            ir_emitter_context_->data_layout(), std::move(triton_source),
+            *ir_emitter_context_->llvm_context(), mlir_context,
+            /*is_xla_fusion=*/false, emit_kernels));
 
-    TF_ASSIGN_OR_RETURN(auto kernel_arguments,
-                        emitters::KernelArguments::Create(
-                            ir_emitter_context_->buffer_assignment(),
-                            GetDefaultBufferAlignment(), instr));
+    ASSIGN_OR_RETURN(auto kernel_arguments,
+                     emitters::KernelArguments::Create(
+                         ir_emitter_context_->buffer_assignment(),
+                         GetDefaultBufferAlignment(), instr));
     auto launch_dimensions = LaunchDimensions(
         se::BlockDim(call.grid_x, call.grid_y, call.grid_z),
         se::ThreadDim(
@@ -1267,11 +1277,10 @@ absl::StatusOr<ThunkSequence> ThunkEmitter::EmitTritonCustomCall(
             ir_emitter_context_->gpu_device_info().threads_per_warp()));
 
     if (emit_kernels) {
-      TF_ASSIGN_OR_RETURN(
-          llvm::Function * kernel,
-          RemoveUnusedTritonAbiArguments(result.llvm_module.get(),
-                                         *ir_emitter_context_, kernel_name,
-                                         call.global_scratch_memory_size > 0));
+      ASSIGN_OR_RETURN(llvm::Function * kernel,
+                       RemoveUnusedTritonAbiArguments(
+                           result.llvm_module.get(), *ir_emitter_context_,
+                           kernel_name, call.global_scratch_memory_size > 0));
 
       AnnotateAttrsIfUnset(kernel_arguments, *kernel);
       TF_RETURN_IF_ERROR(AnnotateKernelLaunchDimensions(

@@ -571,7 +571,7 @@ ENTRY entry {
   const HloFusionInstruction* triton_fusion = Cast<HloFusionInstruction>(
       hlo_module->entry_computation()->root_instruction());
   const se::DeviceDescription dev_info =
-      TestGpuDeviceInfo::RTXA6000DeviceInfo();
+      TestGpuDeviceInfo::RTXA6000DeviceInfo(se::CudaComputeCapability(7, 0));
   llvm::LLVMContext llvm_ctx;
   mlir::MLIRContext mlir_context;
   llvm::Triple target_triple(nvptx::TargetTriple());

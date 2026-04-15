@@ -49,6 +49,11 @@ absl::Status RealMain(absl::string_view input_file,
   ASSIGN_OR_RETURN(std::unique_ptr<HloModule> hlo_module,
                    xla::LoadModuleFromFile(std::string(input_file)));
 
+  hlo_module->mutable_config()
+      .mutable_debug_options()
+      .set_xla_gpu_experimental_enable_tiling_propagation(
+          use_experimental_tiling);
+
   HloInstruction* fusion = hlo_module->entry_computation()->root_instruction();
   if (!fusion->IsCustomFusion()) {
     return absl::InvalidArgumentError("Instruction is not a custom fusion.");
@@ -71,9 +76,9 @@ absl::Status RealMain(absl::string_view input_file,
   // CreateTritonXlaPipeline() will lower to TTIR.
   auto status_or_module = CreateTritonModule(
       "triton_fn", *fusion_instr, TestGpuDeviceInfo::RTXA6000DeviceInfo(),
-      block_level_parameters, mlir_context, use_experimental_tiling);
+      block_level_parameters, mlir_context);
   if (status_or_module.ok()) {
-    (*status_or_module)->print(llvm::outs());
+    status_or_module->module()->print(llvm::outs());
   } else {
     std::cerr << status_or_module.status() << "\n";
   }
