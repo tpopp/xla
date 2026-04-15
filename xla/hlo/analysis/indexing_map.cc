@@ -839,43 +839,6 @@ std::vector<IndexingMap::Variable> RangeVarsFromTensorSizes(
   return DimVarsFromTensorSizes(tensor_sizes);
 }
 
-// TODO: b/446858351 - Remove this constructor after migrating all users to the
-// symbolic map constructor.
-IndexingMap::IndexingMap(
-    AffineMap affine_map, std::vector<IndexingMap::Variable> dimensions,
-    std::vector<IndexingMap::Variable> range_vars,
-    std::vector<IndexingMap::Variable> rt_vars,
-    absl::Span<std::pair<AffineExpr, Interval> const> constraints)
-    : symbolic_map_(AffineMapToSymbolicMap(affine_map)),
-      dim_vars_(std::move(dimensions)),
-      range_vars_(std::move(range_vars)),
-      rt_vars_(std::move(rt_vars)) {
-  for (const auto& [expr, range] : constraints) {
-    AddConstraint(expr, range);
-  }
-  if (!VerifyVariableIntervals()) {
-    ResetToKnownEmpty();
-  }
-}
-
-// TODO (b/446858351): Remove this constructor after migrating all users to the
-// symbolic map constructor.
-IndexingMap::IndexingMap(
-    AffineMap affine_map, std::vector<IndexingMap::Variable> dimensions,
-    std::vector<IndexingMap::Variable> range_vars,
-    std::vector<IndexingMap::Variable> rt_vars,
-    const llvm::MapVector<AffineExpr, Interval>& constraints)
-    : symbolic_map_(AffineMapToSymbolicMap(affine_map)),
-      dim_vars_(std::move(dimensions)),
-      range_vars_(std::move(range_vars)),
-      rt_vars_(std::move(rt_vars)) {
-  constraints_ = ConvertAffineConstraintsToSymbolicConstraints(
-      constraints, affine_map.getNumDims());
-  if (!VerifyVariableIntervals() || !VerifyConstraintIntervals()) {
-    ResetToKnownEmpty();
-  }
-}
-
 IndexingMap::IndexingMap(
     SymbolicMap symbolic_map, std::vector<IndexingMap::Variable> dimensions,
     std::vector<IndexingMap::Variable> range_vars,
@@ -908,16 +871,6 @@ IndexingMap::IndexingMap(
     ResetToKnownEmpty();
     return;
   }
-}
-
-// TODO (b/446858351): Remove this constructor once all the users are migrated
-// to the symbolic map constructor.
-IndexingMap IndexingMap::FromTensorSizes(
-    AffineMap affine_map, absl::Span<const int64_t> dim_upper_bounds,
-    absl::Span<const int64_t> symbol_upper_bounds) {
-  return IndexingMap{affine_map, DimVarsFromTensorSizes(dim_upper_bounds),
-                     RangeVarsFromTensorSizes(symbol_upper_bounds),
-                     /*rt_vars=*/{}};
 }
 
 IndexingMap IndexingMap::FromTensorSizes(
@@ -977,12 +930,6 @@ std::vector<Interval> IndexingMap::GetSymbolBounds() const {
     bounds.push_back(rt_var.bounds);
   }
   return bounds;
-}
-
-// TODO: (b/446858351) - Remove this function once all the users are migrated to
-// the symbolic map constructor.
-void IndexingMap::AddConstraint(mlir::AffineExpr expr, Interval range) {
-  AddConstraint(AffineExprToSymbolicExpr(expr, GetDimensionCount()), range);
 }
 
 void IndexingMap::AddConstraint(SymbolicExpr expr, Interval range) {
