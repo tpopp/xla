@@ -133,9 +133,9 @@ absl::StatusOr<KernelDefinition<LlvmKernelSource>> EmitPadToStaticLLVMIR(
 //   return;
 // }
 //   ```
-absl::StatusOr<ThunkSequence> EmitSliceToDynamicLLVMIR(
-    const HloCustomCallInstruction* hlo, llvm::Module* llvm_module,
-    IrEmitterContext* ir_emitter_context);
+absl::StatusOr<KernelDefinition<LlvmKernelSource>> EmitSliceToDynamicLLVMIR(
+    const HloCustomCallInstruction* hlo, IrEmitterContext* parent_context,
+    const emitters::KernelArguments& kernel_arguments);
 
 // Emit a kernel to increment the global state for Philox RNG
 // algorithm.

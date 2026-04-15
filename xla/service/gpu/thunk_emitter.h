@@ -194,8 +194,7 @@ class ThunkEmitter {
   AsyncThunkSequence EmitRngGetAndUpdateState(
       const HloRngGetAndUpdateStateInstruction* instr);
 
-  absl::StatusOr<ThunkSequence> EmitSliceToDynamic(
-      const HloCustomCallInstruction* hlo);
+  AsyncThunkSequence EmitSliceToDynamic(const HloCustomCallInstruction* instr);
 
   absl::StatusOr<ThunkSequence> EmitSendDoneThunk(
       const HloSendDoneInstruction* hlo);
