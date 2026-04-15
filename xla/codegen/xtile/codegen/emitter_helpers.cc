@@ -204,12 +204,15 @@ SmallVector<int64_t> GetPaddedTileSizes(ArrayRef<int64_t> tile_sizes) {
   return result;
 }
 
-Value TensorValueToIndexTypeScalar(mlir::ImplicitLocOpBuilder& b,
-                                   const TensorValue& tensor_value) {
+Value EmitClampedRTVar(mlir::ImplicitLocOpBuilder& b,
+                       const TensorValue& tensor_value,
+                       const Interval& bounds) {
   mlir::OpBuilder::InsertionGuard guard(b);
   b.setInsertionPointAfterValue(tensor_value);
   Value scalar_value = mlir::tensor::ExtractOp::create(b, tensor_value);
-  return Cast(b, scalar_value, b.getIndexType());
+  Value clamped_index =
+      EmitClampedIndex(b, scalar_value, bounds.lower, bounds.upper);
+  return Cast(b, clamped_index, b.getIndexType());
 }
 
 // Evaluates tiling parameters for the given affine expressions, e.g. offsets.
@@ -265,13 +268,13 @@ absl::StatusOr<SmallVector<Value>> EmitterContext::EvaluateTilingParameters(
     for (const auto& symbol_id : symbol_ids) {
       auto it = rt_symbol_to_tiled_hlo.find(symbol_id);
       TF_RET_CHECK(it != rt_symbol_to_tiled_hlo.end());
-      TensorValue tensor_value = TiledHloToTensorValue(*it->second);
-      symbol_values.push_back(TensorValueToIndexTypeScalar(b_, tensor_value));
+      const auto& [tiled_hlo, bounds] = it->second;
+      TensorValue tensor_value = TiledHloToTensorValue(*tiled_hlo);
+      symbol_values.push_back(EmitClampedRTVar(b_, tensor_value, bounds));
       symbol_replacements[symbol_id] =
           CreateSymbolExpr(symbol_count++, /*num_dims=*/1, mlir_context);
       symbol_variables.push_back(
-          IndexingMap::Variable{0, std::numeric_limits<int64_t>::max(),
-                                absl::StrCat("rt_", symbol_id)});
+          IndexingMap::Variable{bounds, absl::StrCat("rt_", symbol_id)});
     }
   }
 

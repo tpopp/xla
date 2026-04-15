@@ -716,6 +716,12 @@ absl::StatusOr<TensorValue> EmitTiledHloInstruction(
     case HloOpcode::kPad: {
       return EmitPad(emitter_ctx, tiled_hlo);
     }
+    case HloOpcode::kReshape: {
+      ASSIGN_OR_RETURN(auto tile_sizes, tiled_hlo.tile().GetStaticTileSizes());
+      return EmitTiledReshape(
+          emitter_ctx.b(), tile_sizes,
+          emitter_ctx.TiledHloToTensorValue(*tiled_hlo.operand(0)));
+    }
     case HloOpcode::kSlice: {
       return emitter_ctx.TiledHloToTensorValue(*tiled_hlo.operand(0));
     }

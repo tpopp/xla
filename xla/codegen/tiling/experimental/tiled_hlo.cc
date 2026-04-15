@@ -46,6 +46,7 @@ limitations under the License.
 #include "xla/codegen/tiling/experimental/tile.h"
 #include "xla/codegen/tiling/experimental/tile_propagation.h"
 #include "xla/codegen/tiling/experimental/tiling_space.h"
+#include "xla/hlo/analysis/interval.h"
 #include "xla/hlo/ir/hlo_casting_utils.h"
 #include "xla/hlo/ir/hlo_instruction.h"
 #include "xla/hlo/ir/hlo_instructions.h"
@@ -268,7 +269,8 @@ absl::InlinedVector<const HloInstruction*, 2> ToInstructions(
 /*static*/ TiledHloRegionOrError TiledHloComputation::CreateRegion(
     std::unique_ptr<TiledHloInstruction> tiled_root,
     const HloFusionAdaptor& fusion, const TilingSpace& tiling_space,
-    absl::flat_hash_map<int64_t, const TiledHloInstruction*>&
+    absl::flat_hash_map<int64_t,
+                        std::pair<const TiledHloInstruction*, Interval>>&
         rt_symbol_to_tiled_hlo) {
   std::vector<TiledHloInstruction*> worklist = {tiled_root.get()};
   OrderedUniquePtrValueHashSet<TiledHloInstruction> tiled_hlo_instructions_set;
@@ -344,7 +346,7 @@ absl::InlinedVector<const HloInstruction*, 2> ToInstructions(
         if (rt_var_info.has_value()) {
           rt_symbol_to_tiled_hlo.insert(std::make_pair(
               rt_var_info.value()->id + tiling_space.num_dimensions(),
-              operand_tiled_hlo));
+              std::make_pair(operand_tiled_hlo, rt_var_info.value()->bounds)));
         }
       }
     }
@@ -365,7 +367,7 @@ absl::InlinedVector<const HloInstruction*, 2> ToInstructions(
   SmallVector<const TiledHloInstruction*> roots_with_no_users;
   OrderedUniquePtrValueHashSet<TiledHloInstruction> tiled_hlo_instructions_set;
 
-  absl::flat_hash_map<int64_t, const TiledHloInstruction*>
+  absl::flat_hash_map<int64_t, std::pair<const TiledHloInstruction*, Interval>>
       rt_symbol_to_tiled_hlo;
   for (const auto& [root, tile] :
        llvm::zip(fusion.GetRoots(), tiling_space->tiled_roots())) {

@@ -205,6 +205,7 @@ cc_library(
         ":tile",
         ":tile_propagation",
         "//xla:util",
+        "//xla/hlo/analysis:interval",
         "//xla/hlo/ir:hlo",
         "//xla/hlo/utils:hlo_traversal",
         "//xla/service:instruction_fusion",
