@@ -1728,8 +1728,8 @@ cc_library(
     name = "compiled_module",
     hdrs = ["compiled_module.h"],
     deps = [
-        ":buffer_assignment",
         "//xla/hlo/ir:hlo",
+        "//xla/pjrt:compiled_memory_stats",
         "//xla/stream_executor:platform",
         "//xla/stream_executor/abi:executable_abi_version",
         "@com_google_absl//absl/status",
@@ -1742,10 +1742,10 @@ cc_library(
     testonly = True,
     hdrs = ["mock_compiled_module.h"],
     deps = [
-        ":buffer_assignment",
         ":compiled_module",
         ":executable",
         "//xla/hlo/ir:hlo",
+        "//xla/pjrt:compiled_memory_stats",
         "//xla/stream_executor:platform_id",
         "//xla/stream_executor/abi:executable_abi_version",
         "@com_google_absl//absl/status:statusor",
