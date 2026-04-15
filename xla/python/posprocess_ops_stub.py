@@ -12,22 +12,23 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from jax.jaxlib._jax import HloModule
+"""Posprocesses the stubs removing the xla:: prefix from the annotations."""
 
-class HloPassInterface:
-  @property
-  def name(self) -> str: ...
-  def is_pass_pipeline(self) -> bool: ...
-  def run(self, module: HloModule, /) -> bool: ...
+import re
 
-class HloDCE(HloPassInterface):
-  def __init__(self) -> None: ...
+from absl import app
 
-class CallInliner(HloPassInterface):
-  def __init__(self) -> None: ...
 
-class FlattenCallGraph(HloPassInterface):
-  def __init__(self) -> None: ...
+def main(argv):
+  for path in argv[1:]:
+    with open(path, "r") as f:
+      content = f.read()
 
-class TupleSimplifier(HloPassInterface):
-  def __init__(self) -> None: ...
+    content = re.sub(r'"?xla::(\w+)"?', r"\1", content)
+
+    with open(path, "w") as f:
+      f.write(content)
+
+
+if __name__ == "__main__":
+  app.run(main)
