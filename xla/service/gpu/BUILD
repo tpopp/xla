@@ -3549,6 +3549,7 @@ xla_cc_test(
         "//xla/service:hlo_module_config",
         "//xla/service:latency_hiding_scheduler",
         "//xla/service:profile_guided_latency_estimator",
+        "//xla/stream_executor:device_description",
         "//xla/tests:xla_internal_test_main",
         "//xla/tsl/lib/core:status_test_util",
         "//xla/tsl/platform:errors",
