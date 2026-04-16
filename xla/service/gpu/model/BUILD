@@ -444,7 +444,7 @@ cc_library(
         "//xla/service/gpu:gpu_fusible",
         "//xla/service/gpu:launch_dimensions",
         "//xla/stream_executor:device_description",
-        "//xla/tsl/platform:gloop_status_macros",
+        "//xla/tsl/platform:status_macros",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/log:check",
