@@ -397,6 +397,11 @@ TensorValue EmitTiledTranspose(mlir::ImplicitLocOpBuilder& b,
                                llvm::SmallVector<int64_t> dimensions,
                                TensorValue input);
 
+// Emits a reduction computation.
+absl::Status EmitReduceComputation(mlir::ImplicitLocOpBuilder& b,
+                                   const HloInstruction* hlo_reduction,
+                                   const HloComputation* reduction_computation,
+                                   mlir::Operation* reduction);
 }  // namespace xla::xtile
 
 #endif  // XLA_CODEGEN_XTILE_CODEGEN_EMITTER_HELPERS_H_

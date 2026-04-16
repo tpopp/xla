@@ -43,6 +43,7 @@ limitations under the License.
 #include "mlir/IR/TypeUtilities.h"
 #include "mlir/IR/Types.h"
 #include "mlir/IR/Value.h"
+#include "mlir/IR/ValueRange.h"
 #include "mlir/Interfaces/FunctionInterfaces.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Support/LLVM.h"
@@ -54,7 +55,6 @@ limitations under the License.
 #include "xla/codegen/xtile/codegen/emitter_helpers.h"
 #include "xla/codegen/xtile/ir/transforms/passes.h"
 #include "xla/codegen/xtile/ir/xtile_ops.h"
-#include "xla/hlo/analysis/indexing_map.h"
 #include "xla/hlo/analysis/indexing_map_serialization.h"  // IWYU pragma: keep
 #include "xla/hlo/analysis/interval.h"
 #include "xla/hlo/ir/hlo_casting_utils.h"
@@ -82,12 +82,12 @@ namespace {
 
 using ::llvm::ArrayRef;
 using ::llvm::SmallVector;
-using ::mlir::FunctionOpInterface;
 using ::mlir::ImplicitLocOpBuilder;
 using ::mlir::Location;
 using ::mlir::MLIRContext;
 using ::mlir::Type;
 using ::mlir::Value;
+using ::mlir::ValueRange;
 using ::stream_executor::GpuComputeCapability;
 
 namespace arith = ::mlir::arith;
@@ -110,6 +110,54 @@ TensorValue Iota(mlir::ImplicitLocOpBuilder& b, int32_t limit) {
 template <typename T>
 ArrayRef<T> MakeArrayRef(const absl::Span<const T> span) {
   return ArrayRef(span.data(), span.size());
+}
+
+absl::StatusOr<TensorValue> EmitAllReduce(
+    EmitterContext& emitter_ctx, const HloAllReduceInstruction* all_reduce,
+    const ge::TiledHloInstruction& tiled_all_reduce, ValueRange operands) {
+  if (all_reduce->device_list()->replica_groups().empty()) {
+    return Internal(
+        "Triton emitting AllReduce without replica groups is not supported.");
+  }
+
+  llvm::SmallVector<int64_t> flattened_replica_group_ids;
+  for (const auto& replica_group : all_reduce->replica_groups()) {
+    for (const auto& replica_id : replica_group.replica_ids()) {
+      flattened_replica_group_ids.push_back(replica_id);
+    }
+  }
+
+  std::optional<int64_t> channel_handle = all_reduce->channel_id();
+  bool use_global_device_ids = all_reduce->use_global_device_ids();
+
+  ImplicitLocOpBuilder& b = emitter_ctx.b();
+  ASSIGN_OR_RETURN(
+      auto output_element_type,
+      xtile::PrimitiveTypeToMlirType(b, all_reduce->shape().element_type()));
+  ASSIGN_OR_RETURN(SmallVector<int64_t> tile_sizes,
+                   tiled_all_reduce.tile().GetStaticTileSizes());
+  auto output_type =
+      mlir::RankedTensorType::get(tile_sizes, output_element_type);
+
+  auto replica_groups_type = mlir::RankedTensorType::get(
+      {static_cast<int64_t>(all_reduce->replica_groups().size()),
+       static_cast<int64_t>(
+           all_reduce->replica_groups()[0].replica_ids_size())},
+      b.getI64Type());
+  auto replica_groups_attr = mlir::DenseIntElementsAttr::get(
+      replica_groups_type, flattened_replica_group_ids);
+  auto channel_handle_attr =
+      channel_handle ? mlir::stablehlo::ChannelHandleAttr::get(b.getContext(),
+                                                               *channel_handle,
+                                                               /*type=*/0)
+                     : nullptr;
+  auto all_reduce_op = mlir::stablehlo::AllReduceOp::create(
+      b, output_type, operands, replica_groups_attr, channel_handle_attr,
+      use_global_device_ids);
+
+  RETURN_IF_ERROR(EmitReduceComputation(b, all_reduce, all_reduce->to_apply(),
+                                        all_reduce_op));
+  return mlir::cast<TensorValue>(all_reduce_op.getResult(0));
 }
 
 absl::StatusOr<TensorValue> EmitBroadcast(
@@ -696,7 +744,22 @@ absl::StatusOr<TensorValue> EmitTiledHloInstruction(
   for (const ge::TiledHloInstruction* operand : tiled_hlo.operands()) {
     operands.push_back(emitter_ctx.TiledHloToTensorValue(*operand));
   }
+  // Please keep the cases in alphabetical order.
   switch (hlo->opcode()) {
+    case (HloOpcode::kAllReduceStart): {
+      const HloComputation* computation =
+          fusion.fused_instructions_computation();
+      const HloInstruction* root_instruction = computation->root_instruction();
+      if (root_instruction->opcode() == HloOpcode::kAllReduceDone) {
+        root_instruction = root_instruction->operand(0);
+      }
+      return EmitAllReduce(emitter_ctx,
+                           xla::Cast<HloAllReduceInstruction>(root_instruction),
+                           tiled_hlo, operands);
+    }
+    case (HloOpcode::kAllReduceDone): {
+      return emitter_ctx.TiledHloToTensorValue(*tiled_hlo.operand(0));
+    }
     case HloOpcode::kBroadcast: {
       return EmitBroadcast(b, tiled_hlo, mlir::cast<TensorValue>(operands[0]));
     }

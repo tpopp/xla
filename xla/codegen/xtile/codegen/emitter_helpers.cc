@@ -956,4 +956,46 @@ TensorValue EmitTiledTranspose(mlir::ImplicitLocOpBuilder& b,
                                               order);
 }
 
+absl::Status EmitReduceComputation(mlir::ImplicitLocOpBuilder& b,
+                                   const HloInstruction* hlo_reduction,
+                                   const HloComputation* reduction_computation,
+                                   mlir::Operation* reduction) {
+  ASSIGN_OR_RETURN(
+      Type result_ty,
+      PrimitiveTypeToMlirType(b, hlo_reduction->shape().element_type()));
+  result_ty = mlir::RankedTensorType::get({}, result_ty);
+
+  mlir::Location loc = b.getLoc();
+  mlir::Block* reducer = b.createBlock(&reduction->getRegion(0), {},
+                                       {result_ty, result_ty}, {loc, loc});
+  b.setInsertionPointToStart(reducer);
+
+  std::vector<const HloInstruction*> to_emit;
+  absl::flat_hash_map<const HloInstruction*, TensorValue> region_values;
+  for (const HloInstruction* instr :
+       reduction_computation->MakeInstructionPostOrder()) {
+    if (instr->opcode() == HloOpcode::kParameter) {
+      int parameter_number = instr->parameter_number();
+      TF_RET_CHECK(parameter_number < 2);
+      auto argument = mlir::cast<mlir::TypedValue<mlir::RankedTensorType>>(
+          reducer->getArgument(parameter_number));
+
+      if (!argument) {
+        return Internal("Expected reducer argument to be a tensor.");
+      }
+
+      TF_RET_CHECK(region_values.insert({instr, argument}).second);
+    } else {
+      to_emit.push_back(instr);
+    }
+  }
+
+  TF_RET_CHECK(!to_emit.empty());
+
+  ASSIGN_OR_RETURN(TensorValue result, EmitScope(b, to_emit, region_values));
+  mlir::stablehlo::ReturnOp::create(b, SmallVector<Value>({result}));
+  b.setInsertionPointAfter(reduction);
+  return absl::OkStatus();
+}
+
 }  // namespace xla::xtile

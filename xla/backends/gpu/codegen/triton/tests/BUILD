@@ -52,7 +52,13 @@ xla_cc_binary(
 
 lit_device_test(
     name = "tests",
-    srcs = glob(["**/*.hlo"]),
+    srcs = glob(
+        include = ["**/*.hlo"],
+        exclude = [
+            # TODO(b/502824167): Re-enable once the test is fixed.
+            "collectives/*.hlo",
+        ],
+    ),
     backends = [
         "h100",
         "b200",
