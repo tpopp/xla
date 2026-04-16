@@ -138,13 +138,6 @@ static absl::StatusOr<std::unique_ptr<Command>> Convert(
 }
 
 static absl::StatusOr<std::unique_ptr<Command>> Convert(
-    const GemmThunk& thunk) {
-  return std::make_unique<GemmCmd>(thunk.config(), thunk.lhs_buffer(),
-                                   thunk.rhs_buffer(), thunk.output_buffer(),
-                                   thunk.workspace(), thunk.deterministic());
-}
-
-static absl::StatusOr<std::unique_ptr<Command>> Convert(
     const CublasLtMatmulThunk& thunk) {
   if (!thunk.workspace().has_value()) {
     return absl::InternalError(
@@ -321,8 +314,11 @@ static absl::Status AppendCommands(ConversionContext& ctx,
     case Thunk::Kind::kKernel:
       cmd_sequence.Append(static_cast<KernelThunk*>(&thunk));
       return absl::OkStatus();
+    // GemmThunk implements TracedCommand directly; append as borrowed
+    // pointer — the thunk outlives the command sequence.
     case Thunk::Kind::kGemm:
-      return append(Convert<GemmThunk>(thunk));
+      cmd_sequence.Append(static_cast<GemmThunk*>(&thunk));
+      return absl::OkStatus();
     case Thunk::Kind::kCublasLtMatmul:
       return append(Convert<CublasLtMatmulThunk>(thunk));
     case Thunk::Kind::kMemzero:
