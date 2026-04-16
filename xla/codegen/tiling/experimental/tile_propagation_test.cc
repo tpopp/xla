@@ -15,9 +15,11 @@ limitations under the License.
 
 #include "xla/codegen/tiling/experimental/tile_propagation.h"
 
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
@@ -36,6 +38,8 @@ limitations under the License.
 #include "xla/hlo/testlib/hlo_hardware_independent_test_base.h"
 #include "xla/hlo/testlib/verified_hlo_module.h"
 #include "xla/hlo/utils/hlo_traversal.h"
+#include "xla/shape.h"
+#include "xla/shape_util.h"
 
 namespace xla::gpu::experimental {
 namespace {
@@ -66,8 +70,13 @@ class TilePropagationTest : public HloHardwareIndependentTestBase {
 
 struct ReshapeTestCase {
   std::string name;
-  std::string hlo;
-  std::string expected_input;
+  std::vector<int64_t> input_shape;
+  std::vector<int64_t> input_tile_sizes;  // Empty means remain symbolic.
+  std::vector<int64_t> input_tile_strides;
+  std::vector<int64_t> output_shape;
+  std::string expected_output;
+
+  // TODO(b/477615292) - Add checks for upper bounds.
 };
 
 class ReshapeTilePropagationTest
@@ -76,19 +85,37 @@ class ReshapeTilePropagationTest
 
 TEST_P(ReshapeTilePropagationTest, PropagateReshape) {
   const auto& param = GetParam();
-  HloInstruction* root = ParseAndGetRoot(param.hlo);
-  auto tiling_space = TilingSpace::Create(
-      *HloFusionAdaptor::ForInstruction(root), &mlir_context_);
+  Shape input_shape = ShapeUtil::MakeShape(F32, param.input_shape);
+  Shape output_shape = ShapeUtil::MakeShape(F32, param.output_shape);
 
-  // Test PropagateTileToInput.
-  auto input_tiles = PropagateTileToInput(
-      *tiling_space, *root,
-      GetTestTile(*tiling_space, root->shape().dimensions()), 0);
-  if (param.expected_input.empty()) {
-    EXPECT_FALSE(input_tiles.ok());
+  HloComputation::Builder builder("entry");
+  HloInstruction* p0 = builder.AddInstruction(
+      HloInstruction::CreateParameter(0, input_shape, "p0"));
+  HloInstruction* reshape =
+      builder.AddInstruction(HloInstruction::CreateReshape(output_shape, p0));
+
+  auto tiling_space = TilingSpace::Create(*HloFusionAdaptor::ForInstruction(p0),
+                                          &mlir_context_);
+  if (!param.input_tile_sizes.empty()) {
+    CHECK_EQ(param.input_tile_sizes.size(), tiling_space->num_dimensions());
+    tiling_space->AssignTileSizes(param.input_tile_sizes);
+  }
+  SmallVector<DimTile> input_dim_tiles =
+      llvm::to_vector(tiling_space->tiled_roots()[0].dim_tiles());
+  CHECK_EQ(param.input_tile_strides.size(), tiling_space->num_dimensions());
+  for (int i = 0; i < input_dim_tiles.size(); ++i) {
+    input_dim_tiles[i].stride =
+        CreateSymbolicConstant(param.input_tile_strides[i], &mlir_context_);
+  }
+  Tile input_tile = Tile(*tiling_space, std::move(input_dim_tiles));
+  auto output_tiles =
+      PropagateTileToOutput(*tiling_space, *reshape, input_tile, 0);
+
+  if (param.expected_output.empty()) {
+    ASSERT_FALSE(output_tiles.ok());
   } else {
-    ASSERT_TRUE(input_tiles.ok());
-    EXPECT_THAT(*input_tiles, MatchToString(param.expected_input));
+    ASSERT_TRUE(output_tiles.ok());
+    EXPECT_THAT(output_tiles.value(), MatchToString(param.expected_output));
   }
 }
 
@@ -97,14 +124,11 @@ INSTANTIATE_TEST_SUITE_P(
     ReshapeTilePropagationTests, ReshapeTilePropagationTest,
     ::testing::ValuesIn<ReshapeTestCase>({
         {"Identity",
-         R"(
-    HloModule m
-    ENTRY e {
-      p0 = f32[10,20] parameter(0)
-      ROOT r = f32[10,20] reshape(p0)
-    }
-  )",
-         R"(
+         /*input_shape=*/{10, 20},
+         /*input_tile_sizes=*/{},
+         /*input_tile_strides=*/{1, 2},
+         /*output_shape=*/{10, 20},
+         /*expected_output=*/R"(
     0) (tid_0, tid_1)
       -> offsets [tid_0 * ts_0, tid_1 * ts_1]
          sizes [ts_0, ts_1]
@@ -112,86 +136,139 @@ INSTANTIATE_TEST_SUITE_P(
          upper bounds [10, 20]
   )"},
         {"IncreaseRank",
-         R"(
-    HloModule m
-    ENTRY e {
-      p0 = f32[10] parameter(0)
-      ROOT r = f32[1, 10, 1] reshape(p0)
-    }
-  )",
-         R"(
-    0) (tid_0, tid_1, tid_2)
-      -> offsets [tid_1 * ts_1]
-         sizes [ts_1]
-         strides [2]
-         upper bounds [10]
-  )"},
-        {"DecreaseRank",
-         R"(
-    HloModule m
-    ENTRY e {
-      p0 = f32[1, 10, 1] parameter(0)
-      ROOT r = f32[10] reshape(p0)
-    }
-  )",
-         R"(
+         /*input_shape=*/{10},
+         /*input_tile_sizes=*/{},
+         /*input_tile_strides=*/{1},
+         /*output_shape=*/{1, 10, 1},
+         /*expected_output=*/R"(
     0) (tid_0)
       -> offsets [0, tid_0 * ts_0, 0]
          sizes [1, ts_0, 1]
          strides [1, 1, 1]
          upper bounds [1, 10, 1]
   )"},
-        {"SupportedMultiSegment",
-         R"(
-    HloModule m
-    ENTRY e {
-      p0 = f32[12, 1, 8] parameter(0)
-      ROOT r = f32[1, 12, 8] reshape(p0)
-    }
-  )",
-         R"(
+        {"DecreaseRank",
+         /*input_shape=*/{1, 10, 1},
+         /*input_tile_sizes=*/{},
+         /*input_tile_strides=*/{1, 2, 3},
+         /*output_shape=*/{10},
+         /*expected_output=*/R"(
     0) (tid_0, tid_1, tid_2)
-      -> offsets [tid_1 * ts_1, 0, tid_2 * ts_2]
-         sizes [ts_1, 1, ts_2]
-         strides [2, 1, 3]
-         upper bounds [12, 1, 8]
+      -> offsets [tid_1 * ts_1]
+         sizes [ts_1]
+         strides [2]
+         upper bounds [10]
+  )"},
+        {"Generic",
+         /*input_shape=*/{2, 5, 7},
+         /*input_tile_sizes=*/{},
+         /*input_tile_strides=*/{1, 2, 3},
+         /*output_shape=*/{7, 5, 2},
+         /*expected_output=*/""},
+        {"SupportedMultiSegment",
+         /*input_shape=*/{12, 1, 8},
+         /*input_tile_sizes=*/{},
+         /*input_tile_strides=*/{1, 2, 3},
+         /*output_shape=*/{1, 12, 8},
+         /*expected_output=*/R"(
+    0) (tid_0, tid_1, tid_2)
+      -> offsets [0, tid_0 * ts_0, tid_2 * ts_2]
+         sizes [1, ts_0, ts_2]
+         strides [1, 1, 3]
+         upper bounds [1, 12, 8]
   )"},
         {"UnsupportedMultiSegment",
-         R"(
-    HloModule m
-    ENTRY e {
-      p0 = f32[12, 4] parameter(0)
-      ROOT r = f32[1, 12, 2, 2] reshape(p0)
-    }
-  )",
-         ""},
+         /*input_shape=*/{12, 4},
+         /*input_tile_sizes=*/{},
+         /*input_tile_strides=*/{1, 2},
+         /*output_shape=*/{1, 12, 2, 2},
+         /*expected_output=*/""},
         {"ExpandShape",
-         R"(
-    HloModule m
-    ENTRY e {
-      p0 = f32[12] parameter(0)
-      ROOT r = f32[3, 4] reshape(p0)
-    }
-  )",
-         ""},
-        {"CollapseShape",
-         R"(
-    HloModule m
-    ENTRY e {
-      p0 = f32[3, 4] parameter(0)
-      ROOT r = f32[12] reshape(p0)
-    }
-  )",
-         ""},
-        {"Generic",
-         R"(
-    HloModule m
-    ENTRY e {
-      p0 = f32[2, 5, 7] parameter(0)
-      ROOT r = f32[7, 5, 2] reshape(p0)
-    }
-  )",
-         ""},
+         /*input_shape=*/{12},
+         /*input_tile_sizes=*/{1},
+         /*input_tile_strides=*/{1},
+         /*output_shape=*/{3, 4},
+         /*expected_output=*/""},
+        // Example (tid_0, tid_1) -> (offset, upper bound):
+        // (0, 0) -> (0,  3), (0, 1) -> ( 3,  4)
+        // (1, 0) -> (4,  7), (1, 1) -> ( 7,  8)
+        // (2, 0) -> (8, 11), (2, 1) -> (11, 12)
+        {"CollapseShapeCase1_Stride1_LastDimPartialTiled",
+         /*input_shape=*/{3, 4},
+         /*input_tile_sizes=*/{1, 3},
+         /*input_tile_strides=*/{1, 1},
+         /*output_shape=*/{12},
+         /*expected_output=*/R"(
+    0) (tid_0, tid_1)
+      -> offsets [tid_0 * 4 + tid_1 * 3]
+         sizes [3]
+         strides [1]
+         upper bounds [min(tid_0 * 1, 2) * 4 + min(tid_1 * 3 + 2, 3) + 1]
+  )"},
+        {"CollapseShapeCase2_Stride1_LastDimFullTiled",
+         /*input_shape=*/{3, 4},
+         /*input_tile_sizes=*/{2, 4},
+         /*input_tile_strides=*/{1, 1},
+         /*output_shape=*/{12},
+         /*expected_output=*/R"(
+    0) (tid_0, tid_1)
+      -> offsets [tid_0 * 8 + tid_1 * 4]
+         sizes [8]
+         strides [1]
+         upper bounds [min(tid_0 * 2 + 1, 2) * 4 + min(tid_1 * 4 + 3, 3) + 1]
+  )"},
+        // Example (tid_0, tid_1) -> (offset, upper bound):
+        // (0, 0) -> (0,  4), (0, 1) -> ( 3,  4)
+        // (1, 0) -> (4,  8), (1, 1) -> ( 7,  8)
+        // (2, 0) -> (8, 12), (2, 1) -> (11, 12)
+        {"CollapseShapeCase3_StrideNot1_LastDimPartialTiled",
+         /*input_shape=*/{3, 4},
+         /*input_tile_sizes=*/{1, 3},
+         /*input_tile_strides=*/{1, 2},
+         /*output_shape=*/{12},
+         /*expected_output=*/R"(
+    0) (tid_0, tid_1)
+      -> offsets [tid_0 * 4 + tid_1 * 3]
+         sizes [3]
+         strides [2]
+         upper bounds [min(tid_0 * 1, 2) * 4 + min(tid_1 * 3 + 4, 3) + 1]
+  )"},
+        {"CollapseShape_WithLeadingOneInOutput",
+         /*input_shape=*/{3, 4},
+         /*input_tile_sizes=*/{1, 3},
+         /*input_tile_strides=*/{1, 1},
+         /*output_shape=*/{1, 12},
+         /*expected_output=*/R"(
+    0) (tid_0, tid_1)
+      -> offsets [0, tid_0 * 4 + tid_1 * 3]
+         sizes [1, 3]
+         strides [1, 1]
+         upper bounds [1, min(tid_0 * 1, 2) * 4 + min(tid_1 * 3 + 2, 3) + 1]
+  )"},
+        {"CollapseShape_WithTrailingOneInOutput",
+         /*input_shape=*/{3, 4},
+         /*input_tile_sizes=*/{1, 3},
+         /*input_tile_strides=*/{1, 1},
+         /*output_shape=*/{12, 1},
+         /*expected_output=*/R"(
+    0) (tid_0, tid_1)
+      -> offsets [tid_0 * 4 + tid_1 * 3, 0]
+         sizes [3, 1]
+         strides [1, 1]
+         upper bounds [min(tid_0 * 1, 2) * 4 + min(tid_1 * 3 + 2, 3) + 1, 1]
+  )"},
+        {"CollapseShape_WithMiddleOneInInput",
+         /*input_shape=*/{3, 1, 4},
+         /*input_tile_sizes=*/{1, 1, 3},
+         /*input_tile_strides=*/{1, 1, 1},
+         /*output_shape=*/{12},
+         /*expected_output=*/R"(
+    0) (tid_0, tid_1, tid_2)
+      -> offsets [tid_0 * 4 + tid_2 * 3]
+         sizes [3]
+         strides [1]
+         upper bounds [min(tid_0 * 1, 2) * 4 + min(tid_2 * 3 + 2, 3) + 1]
+  )"},
     }),
     [](const ::testing::TestParamInfo<ReshapeTilePropagationTest::ParamType>&
            info) { return info.param.name; });
