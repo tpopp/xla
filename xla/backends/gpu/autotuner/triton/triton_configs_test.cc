@@ -33,7 +33,7 @@ TEST(TritonConfigsTest, PlatformsReturnNonEmptyConfig) {
   EXPECT_THAT(GetTritonConfigsForPlatform(TritonConfigsPlatform::kDefaultRocm),
               SizeIs(6));
   EXPECT_THAT(GetTritonConfigsForPlatform(TritonConfigsPlatform::kHopper),
-              SizeIs(63));
+              SizeIs(25));
 }
 
 }  // namespace
