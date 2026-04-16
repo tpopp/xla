@@ -22,7 +22,7 @@ fusion {
 // CHECK:     %[[EXTRACT_0:.*]] = xtile.extract %[[ARG0]][%[[C0]]] [1]
 // CHECK-SAME:   memref<64xi32> -> tensor<1xi32>
 
-// CHECK:      %[[VAL_0:.*]] = "tt.reduce"
+// CHECK:      %[[VAL_0:.*]] = tt.unsplat %[[EXTRACT_0]] : tensor<1xi32>
 // CHECK:      %[[MAXSI_0:.*]] = arith.maxsi %[[VAL_0]], %[[C0_I32]] : i32
 // CHECK:      %[[MINSI_0:.*]] = arith.minsi %[[MAXSI_0]], %[[C54_I32]] : i32
 // CHECK:      %[[CAST:.*]] = arith.index_cast %[[MINSI_0]] : i32 to index
