@@ -3950,9 +3950,15 @@ SpmdPartitioningVisitor::HandleDUSAllPartitionedSliceDimsHaveConstantIndices(
     auto zeroElemOp = add_hlo(HloInstruction::CreateConstant(
         LiteralUtil::Zero(hlo->shape().element_type())));
 
-    const HloInstruction* actual_update = update_tensor;
+    std::vector<int64_t> accumulated_offsets(hlo->shape().dimensions().size(),
+                                             0);
+    const HloInstruction* actual_update = piece_update_tensor;
     std::optional<ShapeUtil::ShapeEqualityDescriptor> reshape_desc;
     while (actual_update->user_count() == 1) {
+      if (actual_update->has_sharding() &&
+          actual_update->sharding().IsReplicated()) {
+        break;
+      }
       if (actual_update->opcode() == HloOpcode::kCopy) {
         actual_update = actual_update->operand(0);
       } else if (actual_update->opcode() == HloOpcode::kReshape &&
@@ -3965,6 +3971,35 @@ SpmdPartitioningVisitor::HandleDUSAllPartitionedSliceDimsHaveConstantIndices(
         } else {
           break;
         }
+      } else if (actual_update->opcode() == HloOpcode::kDynamicUpdateSlice &&
+                 !reshape_desc.has_value()) {
+        bool all_constant = true;
+        for (int i = 2; i < actual_update->operand_count(); ++i) {
+          if (actual_update->operand(i)->opcode() != HloOpcode::kConstant) {
+            all_constant = false;
+            break;
+          }
+        }
+        if (all_constant) {
+          for (int i = 0; i < actual_update->shape().dimensions().size(); ++i) {
+            auto const_op =
+                DynCast<HloConstantInstruction>(actual_update->operand(2 + i));
+            auto val = const_op->literal().GetIntegralAsS64({});
+            if (val.has_value()) {
+              accumulated_offsets[i] += *val;
+            } else {
+              all_constant = false;
+              break;
+            }
+          }
+          if (all_constant) {
+            actual_update = actual_update->operand(1);
+          } else {
+            break;
+          }
+        } else {
+          break;
+        }
       } else {
         break;
       }
@@ -3972,21 +4007,21 @@ SpmdPartitioningVisitor::HandleDUSAllPartitionedSliceDimsHaveConstantIndices(
 
     HloInstruction* newOperand = nullptr;
 
-    if (piece_update_tensor->opcode() == HloOpcode::kBroadcast) {
+    if (actual_update->opcode() == HloOpcode::kBroadcast) {
       // Check if we are broadcasting a scalar, in which case we can simply
       // broadcast the operand to the output shape instead of padding.
       bool enableBroadcastOptimization =
-          piece_update_tensor->operand(0)->shape().dimensions().empty();
+          actual_update->operand(0)->shape().dimensions().empty();
       if (enableBroadcastOptimization) {
         newOperand = add_hlo(HloInstruction::CreateBroadcast(
             GetPartitionedHlo(input_tensor).hlo()->shape(),
-            GetPartitionedHlo(piece_update_tensor->operand(0)).hlo(), {}));
+            GetPartitionedHlo(actual_update->operand(0)).hlo(), {}));
         newOperand->set_sharding(hlo->sharding());
       }
-    } else if (piece_update_tensor->opcode() == HloOpcode::kSlice) {
+    } else if (actual_update->opcode() == HloOpcode::kSlice) {
       bool slice_expand_eligible = true;
       const xla::HloSliceInstruction* slice =
-          DynCast<HloSliceInstruction>(piece_update_tensor);
+          DynCast<HloSliceInstruction>(actual_update);
       const xla::HloDynamicUpdateSliceInstruction* dus =
           DynCast<HloDynamicUpdateSliceInstruction>(hlo);
 
@@ -4097,6 +4132,75 @@ SpmdPartitioningVisitor::HandleDUSAllPartitionedSliceDimsHaveConstantIndices(
 
         if (reshape_desc.has_value()) {
           // Fallback path for rank-changing reshapes
+          bool is_communication_free = true;
+          const HloSharding& rep_sharding = replacement.sharding();
+          const HloSharding& hlo_sharding = hlo->sharding();
+
+          if (!rep_sharding.IsTiled() || !hlo_sharding.IsTiled()) {
+            is_communication_free = false;
+          } else {
+            for (int64_t i = 0; i < hlo->shape().dimensions().size(); ++i) {
+              int64_t pre_dim = post_to_pre[i];
+              if (pre_dim != -1) {
+                if (ShardCountAtDim(hlo_sharding, i) !=
+                    ShardCountAtDim(rep_sharding, pre_dim)) {
+                  is_communication_free = false;
+                  break;
+                }
+              }
+            }
+            if (is_communication_free) {
+              for (int64_t i = 0;
+                   i < rep_sharding.tile_assignment().dimensions().size();
+                   ++i) {
+                if (std::find(post_to_pre.begin(), post_to_pre.end(), i) ==
+                    post_to_pre.end()) {
+                  if (rep_sharding.tile_assignment().dimensions()[i] > 1) {
+                    is_communication_free = false;
+                    break;
+                  }
+                }
+              }
+            }
+          }
+
+          std::vector<int64_t> local_starts_comms_free = new_slice_starts;
+          std::vector<int64_t> local_limits_comms_free = new_slice_limits;
+          PaddingConfig local_pc_comms_free = padding_config2;
+
+          if (is_communication_free) {
+            for (int64_t i = 0; i < hlo->shape().dimensions().size(); ++i) {
+              int64_t pre_dim = post_to_pre[i];
+              if (pre_dim != -1 && ShardCountAtDim(hlo_sharding, i) > 1) {
+                int64_t dus_start =
+                    piece_dus_starts[i] + accumulated_offsets[i];
+                int64_t slice_start = slice->slice_starts(pre_dim);
+                int64_t slice_size = slice->shape().dimensions(pre_dim);
+                if (dus_start != slice_start) {
+                  is_communication_free = false;
+                  break;
+                }
+                int64_t shard_size = hlo->shape().dimensions(i) /
+                                     ShardCountAtDim(hlo_sharding, i);
+                local_starts_comms_free[pre_dim] = slice_start % shard_size;
+                local_limits_comms_free[pre_dim] =
+                    local_starts_comms_free[pre_dim] + slice_size;
+                local_pc_comms_free.mutable_dimensions(pre_dim)
+                    ->set_edge_padding_low(0);
+                local_pc_comms_free.mutable_dimensions(pre_dim)
+                    ->set_edge_padding_high(0);
+              }
+            }
+          }
+
+          if (is_communication_free) {
+            new_slice_starts = local_starts_comms_free;
+            new_slice_limits = local_limits_comms_free;
+            padding_config2 = local_pc_comms_free;
+            needs_slice = true;
+            needs_pad = false;
+          }
+
           if (needs_slice) {
             TF_ASSIGN_OR_RETURN(
                 Shape new_shape,
