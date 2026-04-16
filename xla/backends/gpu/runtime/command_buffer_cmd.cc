@@ -967,9 +967,11 @@ Command::BufferUses CustomCallCmd::buffer_uses() const {
 // CollectiveCmd
 //===----------------------------------------------------------------------===//
 
-CollectiveCmd::CollectiveCmd(CommandType cmd_type, CollectiveConfig config)
+CollectiveCmd::CollectiveCmd(CommandType cmd_type, CollectiveConfig config,
+                             CommunicationId communication_id)
     : Command(cmd_type, se::StreamPriority::Highest),
-      config_(std::move(config)) {}
+      config_(std::move(config)),
+      communication_id_(communication_id) {}
 
 absl::Status CollectiveCmd::Prepare(const Thunk::PrepareParams& params) {
   TF_RET_CHECK(params.collective_params &&
@@ -978,7 +980,7 @@ absl::Status CollectiveCmd::Prepare(const Thunk::PrepareParams& params) {
   TF_ASSIGN_OR_RETURN(
       GpuCliqueKey clique_key,
       GetGpuCliqueKey(*params.collective_params, config().replica_groups,
-                      config().group_mode));
+                      config().group_mode, communication_id_));
 
   TF_ASSIGN_OR_RETURN(std::vector<std::vector<GlobalDeviceId>> device_groups,
                       GetParticipatingDevicesGroups(
@@ -1056,10 +1058,10 @@ absl::StatusOr<const se::CommandBuffer::Command*> AllReduceCmd::Record(
         "AllReduceCmd requires collective parameters and cliques");
   }
 
-  TF_ASSIGN_OR_RETURN(
-      GpuCliqueKey clique_key,
-      GetGpuCliqueKey(*execute_params.collective_params,
-                      config().replica_groups, config().group_mode));
+  TF_ASSIGN_OR_RETURN(GpuCliqueKey clique_key,
+                      GetGpuCliqueKey(*execute_params.collective_params,
+                                      config().replica_groups,
+                                      config().group_mode, communication_id()));
 
   TF_ASSIGN_OR_RETURN(
       Communicator * comm,
@@ -1123,10 +1125,10 @@ absl::StatusOr<const se::CommandBuffer::Command*> ReduceScatterCmd::Record(
         "ReduceScatterCmd requires collective parameters and cliques");
   }
 
-  TF_ASSIGN_OR_RETURN(
-      GpuCliqueKey clique_key,
-      GetGpuCliqueKey(*execute_params.collective_params,
-                      config().replica_groups, config().group_mode));
+  TF_ASSIGN_OR_RETURN(GpuCliqueKey clique_key,
+                      GetGpuCliqueKey(*execute_params.collective_params,
+                                      config().replica_groups,
+                                      config().group_mode, communication_id()));
 
   TF_ASSIGN_OR_RETURN(
       Communicator * comm,
@@ -1189,17 +1191,17 @@ absl::StatusOr<const se::CommandBuffer::Command*> AllToAllCmd::Record(
         "AllToAllCmd requires collective parameters and cliques");
   }
 
-  TF_ASSIGN_OR_RETURN(
-      GpuCliqueKey clique_key,
-      GetGpuCliqueKey(*execute_params.collective_params,
-                      config().replica_groups, config().group_mode));
+  TF_ASSIGN_OR_RETURN(GpuCliqueKey clique_key,
+                      GetGpuCliqueKey(*execute_params.collective_params,
+                                      config().replica_groups,
+                                      config().group_mode, communication_id()));
 
   TF_ASSIGN_OR_RETURN(
       Communicator * comm,
       execute_params.collective_cliques->GetComm(
           clique_key, execute_params.collective_params->global_device_id));
 
-  // MemCpy case is not currently supported in CommandBuffer.
+  // Memcpy case is not currently supported in CommandBuffer.
   return RecordTracedCommand(
       execute_params, record_params, std::move(record_action), command_buffer,
       [&](se::Stream* stream) {
@@ -1254,10 +1256,10 @@ absl::StatusOr<const se::CommandBuffer::Command*> AllGatherCmd::Record(
         "AllGatherCmd requires collective parameters and cliques");
   }
 
-  TF_ASSIGN_OR_RETURN(
-      GpuCliqueKey clique_key,
-      GetGpuCliqueKey(*execute_params.collective_params,
-                      config().replica_groups, config().group_mode));
+  TF_ASSIGN_OR_RETURN(GpuCliqueKey clique_key,
+                      GetGpuCliqueKey(*execute_params.collective_params,
+                                      config().replica_groups,
+                                      config().group_mode, communication_id()));
 
   TF_ASSIGN_OR_RETURN(
       Communicator * comm,
@@ -1319,10 +1321,10 @@ CollectiveBroadcastCmd::Record(const Thunk::ExecuteParams& execute_params,
         "CollectiveBroadcastCmd requires collective parameters and cliques");
   }
 
-  TF_ASSIGN_OR_RETURN(
-      GpuCliqueKey clique_key,
-      GetGpuCliqueKey(*execute_params.collective_params,
-                      config().replica_groups, config().group_mode));
+  TF_ASSIGN_OR_RETURN(GpuCliqueKey clique_key,
+                      GetGpuCliqueKey(*execute_params.collective_params,
+                                      config().replica_groups,
+                                      config().group_mode, communication_id()));
 
   TF_ASSIGN_OR_RETURN(
       Communicator * comm,
@@ -1353,7 +1355,8 @@ Command::BufferUses CollectiveBroadcastCmd::buffer_uses() const {
 
 RecvCmd::RecvCmd(CollectiveConfig config, P2PConfig p2p_config,
                  const CollectiveThunk::Buffer& buffer)
-    : CollectiveCmd(CommandType::kRecvCmd, std::move(config)),
+    : CollectiveCmd(CommandType::kRecvCmd, std::move(config),
+                    CommunicationId(1)),
       p2p_config_(std::move(p2p_config)),
       buffer_(buffer) {}
 
@@ -1386,10 +1389,10 @@ absl::StatusOr<const se::CommandBuffer::Command*> RecvCmd::Record(
         "RecvCmd requires collective parameters and cliques");
   }
 
-  TF_ASSIGN_OR_RETURN(
-      GpuCliqueKey clique_key,
-      GetGpuCliqueKey(*execute_params.collective_params,
-                      config().replica_groups, config().group_mode));
+  TF_ASSIGN_OR_RETURN(GpuCliqueKey clique_key,
+                      GetGpuCliqueKey(*execute_params.collective_params,
+                                      config().replica_groups,
+                                      config().group_mode, communication_id()));
 
   TF_ASSIGN_OR_RETURN(
       Communicator * comm,
@@ -1440,7 +1443,8 @@ Command::BufferUses RecvCmd::buffer_uses() const {
 
 SendCmd::SendCmd(CollectiveConfig config, P2PConfig p2p_config,
                  const CollectiveThunk::Buffer& buffer)
-    : CollectiveCmd(CommandType::kSendCmd, std::move(config)),
+    : CollectiveCmd(CommandType::kSendCmd, std::move(config),
+                    CommunicationId(1)),
       p2p_config_(std::move(p2p_config)),
       buffer_(buffer) {}
 
@@ -1473,10 +1477,10 @@ absl::StatusOr<const se::CommandBuffer::Command*> SendCmd::Record(
         "SendCmd requires collective parameters and cliques");
   }
 
-  TF_ASSIGN_OR_RETURN(
-      GpuCliqueKey clique_key,
-      GetGpuCliqueKey(*execute_params.collective_params,
-                      config().replica_groups, config().group_mode));
+  TF_ASSIGN_OR_RETURN(GpuCliqueKey clique_key,
+                      GetGpuCliqueKey(*execute_params.collective_params,
+                                      config().replica_groups,
+                                      config().group_mode, communication_id()));
 
   TF_ASSIGN_OR_RETURN(
       Communicator * comm,
@@ -1533,7 +1537,8 @@ Command::BufferUses SendCmd::buffer_uses() const {
 CollectivePermuteCmd::CollectivePermuteCmd(
     CollectiveConfig config, P2PConfig p2p_config,
     absl::Span<const CollectiveThunk::Buffer> buffers)
-    : CollectiveCmd(CommandType::kCollectivePermuteCmd, std::move(config)),
+    : CollectiveCmd(CommandType::kCollectivePermuteCmd, std::move(config),
+                    CommunicationId(1)),
       p2p_config_(std::move(p2p_config)),
       buffers_(buffers.begin(), buffers.end()) {}
 
@@ -1563,10 +1568,10 @@ absl::StatusOr<const se::CommandBuffer::Command*> CollectivePermuteCmd::Record(
         "CollectivePermuteCmd requires collective parameters and cliques");
   }
 
-  TF_ASSIGN_OR_RETURN(
-      GpuCliqueKey clique_key,
-      GetGpuCliqueKey(*execute_params.collective_params,
-                      config().replica_groups, config().group_mode));
+  TF_ASSIGN_OR_RETURN(GpuCliqueKey clique_key,
+                      GetGpuCliqueKey(*execute_params.collective_params,
+                                      config().replica_groups,
+                                      config().group_mode, communication_id()));
 
   TF_ASSIGN_OR_RETURN(
       Communicator * comm,
@@ -2042,10 +2047,10 @@ absl::StatusOr<const se::CommandBuffer::Command*> RaggedAllToAllCmd::Record(
   }
 
   // 1. Resolve Clique Key
-  TF_ASSIGN_OR_RETURN(
-      GpuCliqueKey clique_key,
-      GetGpuCliqueKey(*execute_params.collective_params,
-                      config().replica_groups, config().group_mode));
+  TF_ASSIGN_OR_RETURN(GpuCliqueKey clique_key,
+                      GetGpuCliqueKey(*execute_params.collective_params,
+                                      config().replica_groups,
+                                      config().group_mode, communication_id()));
 
   // 2. Prepare Local Data
   auto device_ordinal = execute_params.stream->parent()->device_ordinal();

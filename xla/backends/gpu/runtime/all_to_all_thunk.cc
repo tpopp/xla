@@ -135,8 +135,7 @@ absl::Status AllToAllThunk::Initialize(const InitializeParams& params) {
     TF_ASSIGN_OR_RETURN(
         GpuCliqueKey clique_key,
         GetGpuCliqueKey(*params.collective_params, config().replica_groups,
-                        config().group_mode,
-                        CommunicationId(p2p_memcpy_enabled_ ? 1 : 0)));
+                        config().group_mode, communication_id()));
 
     TF_ASSIGN_OR_RETURN(
         Communicator * comm,
