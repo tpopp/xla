@@ -899,7 +899,7 @@ std::string ToString(const IndexingMap& indexing_map,
   symbol_names.reserve(range_names.size() + rt_names.size());
   symbol_names.append(range_names.begin(), range_names.end());
   symbol_names.append(rt_names.begin(), rt_names.end());
-  // TODO(karupayun): Do not use conversion here.
+  // TODO(b/446856305): Do not use conversion here.
   ss << ToString(SymbolicMapToAffineMap(indexing_map.GetSymbolicMap()),
                  dim_names, range_names, rt_names);
   if (dim_vars.empty() && range_vars.empty() && rt_vars.empty()) {

@@ -47,7 +47,7 @@ enum class SymbolicExprType {
   kMin,
   kVariable,
   kConstant,  // Constant should be the last type for the comparator.
-  // TODO(karupayun): Add kIn operator.
+  // TODO: b/459357586 - Add kIn operator.
   // kIn,  // 'var in [a, b]' .
 };
 
