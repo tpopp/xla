@@ -540,5 +540,60 @@ TEST(DumpTest, DumpPerExecutionProtoToFile) {
   EXPECT_THAT(loaded_proto2, EqualsProto(R"pb(name: "test_module_2")pb"));
 }
 
+TEST(DumpHloIfEnabled, DumpsToSubfolder) {
+  HloModuleConfig config;
+  DebugOptions options = GetDebugOptionsFromFlags();
+  auto env = tsl::Env::Default();
+  std::string dump_dir;
+  EXPECT_TRUE(env->LocalTempFilename(&dump_dir));
+  options.set_xla_dump_to(dump_dir);
+  options.set_xla_dump_hlo_as_text(true);
+  options.set_xla_dump_hlo_to_subfolder(true);
+  config.set_debug_options(options);
+  const char* kModuleStr = R"(
+    HloModule my_module
+    test {
+      p0 = s32[11] parameter(0)
+      c = s32[11] constant({0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10})
+      ROOT x = s32[11] multiply(p0, c)
+    }
+  )";
+  TF_ASSERT_OK_AND_ASSIGN(auto m,
+                          ParseAndReturnUnverifiedModule(kModuleStr, config));
+  std::string dump_name = "dump";
+  auto paths = DumpHloModuleIfEnabled(*m, dump_name);
+  EXPECT_EQ(paths.size(), 2);
+
+  std::string expected_subfolder = tsl::io::JoinPath(dump_dir, "my_module");
+
+  for (const auto& path : paths) {
+    EXPECT_TRUE(absl::StartsWith(path, expected_subfolder))
+        << "Path " << path << " does not start with " << expected_subfolder;
+  }
+}
+
+TEST(DumpHloIfEnabled, DumpsToStdoutWhenToSubfolderIsTrueAndDumpToIsEmpty) {
+  HloModuleConfig config;
+  DebugOptions options = GetDebugOptionsFromFlags();
+  options.clear_xla_dump_to();
+  options.set_xla_dump_hlo_as_text(true);
+  options.set_xla_dump_hlo_to_subfolder(true);
+  config.set_debug_options(options);
+  const char* kModuleStr = R"(
+    HloModule my_module
+    test {
+      p0 = s32[11] parameter(0)
+      c = s32[11] constant({0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10})
+      ROOT x = s32[11] multiply(p0, c)
+    }
+  )";
+  TF_ASSERT_OK_AND_ASSIGN(auto m,
+                          ParseAndReturnUnverifiedModule(kModuleStr, config));
+  std::string dump_name = "dump";
+  auto paths = DumpHloModuleIfEnabled(*m, dump_name);
+  // It shouldn't return any paths because it dumps to stdout, not to a file.
+  EXPECT_TRUE(paths.empty());
+}
+
 }  // namespace
 }  // namespace xla
