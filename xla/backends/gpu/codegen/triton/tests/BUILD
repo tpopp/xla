@@ -63,6 +63,9 @@ lit_device_test(
         "h100",
         "b200",
     ],
+    data = [
+        "//xla/backends/gpu/target_config:all_gpu_specs",
+    ],
     tags_override = {
         "dot/dot_unit_tile_sizes.hlo": ["nozapfhahn"],
         "dot/dot.hlo": ["nozapfhahn"],
@@ -74,6 +77,7 @@ lit_device_test(
     tools = [
         ":triton_test_correctness",
         "//xla/backends/gpu/codegen/triton/tools:hlo_to_xtileir",
+        "//xla/tools:hlo-opt",
         "@llvm-project//llvm:FileCheck",
     ],
 )
