@@ -1569,7 +1569,9 @@ cc_library(
     hdrs = ["reduce_window_rewriter.h"],
     deps = [
         ":reduce_window_util",
+        "//xla:literal_util",
         "//xla:shape_util",
+        "//xla:status_macros",
         "//xla:util",
         "//xla:window_util",
         "//xla:xla_data_proto_cc",
