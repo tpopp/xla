@@ -328,59 +328,6 @@ Command::BufferUses CustomKernelLaunchCmd::buffer_uses() const {
 }
 
 //===----------------------------------------------------------------------===//
-// MemcpyDeviceToDeviceCmd
-//===----------------------------------------------------------------------===//
-
-MemcpyDeviceToDeviceCmd::MemcpyDeviceToDeviceCmd(ShapedSlice dst,
-                                                 ShapedSlice src,
-                                                 int64_t num_bytes)
-    : Command(CommandType::kMemcpyDeviceToDeviceCmd),
-      dst_(dst),
-      src_(src),
-      num_bytes_(num_bytes) {
-  CHECK_EQ(ShapeUtil::ByteSizeOfElements(src_.shape),
-           ShapeUtil::ByteSizeOfElements(dst_.shape));
-  CHECK_LE(num_bytes, dst_.slice.size());
-  CHECK_LE(num_bytes, src_.slice.size());
-  CHECK_GE(src_.slice.size(), ShapeUtil::ByteSizeOf(src_.shape));
-}
-
-absl::StatusOr<const se::CommandBuffer::Command*>
-MemcpyDeviceToDeviceCmd::Record(const Thunk::ExecuteParams& execute_params,
-                                const RecordParams& record_params,
-                                RecordAction record_action,
-                                se::CommandBuffer* command_buffer) {
-  se::DeviceAddressBase dst =
-      execute_params.buffer_allocations->GetDeviceAddress(dst_.slice);
-  se::DeviceAddressBase src =
-      execute_params.buffer_allocations->GetDeviceAddress(src_.slice);
-
-  VLOG(5) << "MemcpyDeviceToDeviceCmd: num_bytes = " << num_bytes_;
-  VLOG(5) << "  Dst: " << dst_ << " (" << dst.opaque() << ")";
-  VLOG(5) << "  Src: " << src_ << " (" << src.opaque() << ")";
-
-  if (num_bytes_ == 0) {
-    VLOG(5) << "Skip recording MemcpyDeviceToDeviceCmd command of 0 bytes";
-    return nullptr;
-  }
-
-  return Handle(
-      std::move(record_action),
-      [&](absl::Span<const se::CommandBuffer::Command* const> dependencies) {
-        return command_buffer->CreateMemcpyD2D(&dst, src, num_bytes_,
-                                               dependencies);
-      },
-      [&](const se::CommandBuffer::Command* command) {
-        return command_buffer->UpdateMemcpyD2D(command, &dst, src, num_bytes_);
-      });
-}
-
-Command::BufferUses MemcpyDeviceToDeviceCmd::buffer_uses() const {
-  return {BufferUse::Write(dst_.slice, dst_.shape),
-          BufferUse::Read(src_.slice, src_.shape)};
-}
-
-//===----------------------------------------------------------------------===//
 // MemzeroCmd
 //===----------------------------------------------------------------------===//
 

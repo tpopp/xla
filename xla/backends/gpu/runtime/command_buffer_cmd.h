@@ -118,27 +118,6 @@ class CustomKernelLaunchCmd : public Command {
 };
 
 //===----------------------------------------------------------------------===//
-// MemcpyDeviceToDeviceCmd
-//===----------------------------------------------------------------------===//
-
-class MemcpyDeviceToDeviceCmd : public Command {
- public:
-  MemcpyDeviceToDeviceCmd(ShapedSlice dst, ShapedSlice src, int64_t num_bytes);
-
-  absl::StatusOr<const se::CommandBuffer::Command*> Record(
-      const Thunk::ExecuteParams& execute_params,
-      const RecordParams& record_params, RecordAction record_action,
-      se::CommandBuffer* command_buffer) override;
-
-  BufferUses buffer_uses() const override;
-
- private:
-  ShapedSlice dst_;
-  ShapedSlice src_;
-  uint64_t num_bytes_;
-};
-
-//===----------------------------------------------------------------------===//
 // MemzeroCmd
 //===----------------------------------------------------------------------===//
 

@@ -34,6 +34,7 @@ limitations under the License.
 #include "xla/backends/gpu/runtime/command.h"
 #include "xla/backends/gpu/runtime/command_buffer_cmd.h"
 #include "xla/backends/gpu/runtime/command_executor.h"
+#include "xla/backends/gpu/runtime/device_to_device_copy_thunk.h"
 #include "xla/backends/gpu/runtime/dynamic_slice_thunk.h"
 #include "xla/backends/gpu/runtime/gemm_thunk.h"
 #include "xla/backends/gpu/runtime/gpublas_lt_matmul_thunk.h"
@@ -157,7 +158,7 @@ static constexpr auto serialize =
 
 }  // namespace
 
-TEST(CommandBufferThunkTest, MemcpyCmd) {
+TEST(CommandBufferThunkTest, DeviceToDeviceCopy) {
   se::StreamExecutor* stream_executor = GpuExecutor();
 
   TF_ASSERT_OK_AND_ASSIGN(auto stream, stream_executor->CreateStream());
@@ -183,8 +184,9 @@ TEST(CommandBufferThunkTest, MemcpyCmd) {
 
   // Prepare commands sequence for constructing command buffer.
   CommandSequence commands;
-  commands.Emplace<MemcpyDeviceToDeviceCmd>(
-      ShapedSlice{slice_b, shape}, ShapedSlice{slice_a, shape}, byte_length);
+  commands.Emplace<DeviceToDeviceCopyThunk>(
+      Thunk::ThunkInfo(), ShapedSlice{slice_a, shape},
+      ShapedSlice{slice_b, shape}, byte_length);
   TF_ASSERT_OK_AND_ASSIGN(
       CommandExecutor executor,
       CommandExecutor::Create(std::move(commands), serialize));
