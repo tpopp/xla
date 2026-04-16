@@ -2926,7 +2926,6 @@ cc_library(
         "//xla/stream_executor:stream",
         "//xla/stream_executor:stream_executor_h",
         "//xla/tsl/concurrency:async_value",
-        "//xla/tsl/platform:errors",
         "//xla/tsl/platform:status_macros",
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/base:core_headers",
@@ -2939,6 +2938,19 @@ cc_library(
         "@com_google_absl//absl/synchronization",
         "@com_google_absl//absl/types:span",
         "@tsl//tsl/profiler/lib:traceme",
+    ],
+)
+
+xla_cc_test(
+    name = "host_send_recv_thunk_test",
+    srcs = ["host_send_recv_thunk_test.cc"],
+    deps = [
+        ":host_send_recv_thunk",
+        ":thunk",
+        "//xla:shape_util",
+        "//xla/service:buffer_assignment",
+        "//xla/tsl/util/proto:parse_text_proto",
+        "@com_google_googletest//:gtest_main",
     ],
 )
 

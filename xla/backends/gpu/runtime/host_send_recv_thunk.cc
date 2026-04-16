@@ -30,6 +30,7 @@ limitations under the License.
 #include "absl/strings/string_view.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/types/span.h"
+#include "xla/backends/gpu/runtime/host_async_thunk.h"
 #include "xla/backends/gpu/runtime/thunk.h"
 #include "xla/runtime/device_id.h"
 #include "xla/service/buffer_assignment.h"
@@ -40,7 +41,6 @@ limitations under the License.
 #include "xla/stream_executor/stream_executor.h"
 #include "xla/tsl/concurrency/async_value.h"
 #include "xla/tsl/concurrency/async_value_ref.h"
-#include "xla/tsl/platform/errors.h"
 #include "tsl/profiler/lib/traceme.h"
 #include "xla/tsl/platform/status_macros.h"
 
@@ -125,9 +125,8 @@ absl::StatusOr<ThunkProto> HostSendThunk::ToProto() const {
   *host_send_thunk_proto.mutable_shape() = shape_.ToProto();
   ASSIGN_OR_RETURN(*host_send_thunk_proto.mutable_buffer(), buffer_.ToProto());
   host_send_thunk_proto.set_channel_id(channel_id_);
-  for (const auto& [key, value] : frontend_attrs_) {
-    host_send_thunk_proto.mutable_frontend_attrs()->insert({key, value});
-  }
+  host_send_thunk_proto.mutable_frontend_attrs()->insert(
+      frontend_attrs_.begin(), frontend_attrs_.end());
   if (device_constraint_.has_value()) {
     host_send_thunk_proto.set_device_constraint(device_constraint_->value());
   }
@@ -256,7 +255,7 @@ absl::StatusOr<std::unique_ptr<HostSendDoneThunk>> HostSendDoneThunk::FromProto(
       std::make_shared<HostSendRecvAsyncEvents>());
 
   return std::make_unique<HostSendDoneThunk>(thunk_info, proto.channel_id(),
-                                             std::move(async_event_it->second),
+                                             async_event_it->second,
                                              device_constraint);
 }
 
@@ -320,9 +319,8 @@ absl::StatusOr<ThunkProto> HostRecvThunk::ToProto() const {
   *host_recv_thunk_proto.mutable_shape() = shape_.ToProto();
   ASSIGN_OR_RETURN(*host_recv_thunk_proto.mutable_buffer(), buffer_.ToProto());
   host_recv_thunk_proto.set_channel_id(channel_id_);
-  for (const auto& [key, value] : frontend_attrs_) {
-    host_recv_thunk_proto.mutable_frontend_attrs()->insert({key, value});
-  }
+  host_recv_thunk_proto.mutable_frontend_attrs()->insert(
+      frontend_attrs_.begin(), frontend_attrs_.end());
   if (device_constraint_.has_value()) {
     host_recv_thunk_proto.set_device_constraint(device_constraint_->value());
   }
@@ -451,7 +449,7 @@ absl::StatusOr<std::unique_ptr<HostRecvDoneThunk>> HostRecvDoneThunk::FromProto(
       std::make_shared<HostSendRecvAsyncEvents>());
 
   return std::make_unique<HostRecvDoneThunk>(thunk_info, proto.channel_id(),
-                                             std::move(async_event_it->second),
+                                             async_event_it->second,
                                              device_constraint);
 }
 
