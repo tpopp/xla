@@ -252,7 +252,7 @@ absl::StatusOr<CUfunction> GetModuleFunction(Context* context, CUmodule module,
   TF_RETURN_IF_ERROR(cuda::ToStatus(
       cuModuleGetFunction(&function, module, kernel_name),
       absl::StrCat(xla::XlaFormatDevice(context->device_ordinal()),
-                   "Failed to get module function")));
+                   "Failed to get module function ", kernel_name)));
   return function;
 }
 
