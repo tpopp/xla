@@ -1274,7 +1274,10 @@ xla_cc_test(
     name = "debug_options_flags_test",
     srcs = ["debug_options_flags_test.cc"],
     deps = [
+        ":debug_options_flags",
+        ":parse_flags_from_env",
         ":xla_proto_cc",
+        "//xla/tsl/platform:env",
         "//xla/tsl/platform:test_main",
         "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_googletest//:gtest",

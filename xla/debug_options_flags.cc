@@ -3141,6 +3141,21 @@ xla::DebugOptions GetDebugOptionsFromFlags() {
   return *flag_values;
 }
 
+DebugOptions GetDebugOptionsFromProtoAndFlags(
+    DebugOptions* proto_debug_options) {
+  if (proto_debug_options != nullptr) {
+    DebugOptions debug_options = *proto_debug_options;
+    // Apply overrides from XLA_FLAGS environment variable.
+    std::vector<tsl::Flag> flag_list;
+    MakeDebugOptionsFlags(&flag_list, &debug_options);
+    ParseFlagsFromEnvAndDieIfUnknown("XLA_FLAGS", flag_list,
+                                     /*reset_envvar=*/true);
+    return debug_options;
+  }
+
+  return GetDebugOptionsFromFlags();
+}
+
 // LINT.IfChange(get_flag_status)
 FlagStatus GetFlagStatus(absl::string_view flag_name) {
   // NOTE: The explicit internal constructor is needed as an explicitly typed
