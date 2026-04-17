@@ -135,7 +135,6 @@ cc_library(
         "//xla:util",
         "//xla:xla_data_proto_cc",
         "//xla/backends/gpu/codegen/kernels:custom_kernel",
-        "//xla/backends/gpu/codegen/kernels:custom_kernel_fusion",
         "//xla/backends/gpu/runtime:all_reduce_thunk",
         "//xla/backends/gpu/runtime:collective_thunk",
         "//xla/backends/gpu/runtime:custom_call_target",

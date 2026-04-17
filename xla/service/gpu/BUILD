@@ -1727,7 +1727,6 @@ cc_library(
         "//xla/backends/gpu/transforms:conv_rewriter",
         "//xla/backends/gpu/transforms:convert_triton_gemm_config",
         "//xla/backends/gpu/transforms:cudnn_custom_call_converter",
-        "//xla/backends/gpu/transforms:custom_kernel_fusion_rewriter",
         "//xla/backends/gpu/transforms:dot_algorithm_rewriter",
         "//xla/backends/gpu/transforms:dot_dimension_sorter",
         "//xla/backends/gpu/transforms:dot_normalizer",
