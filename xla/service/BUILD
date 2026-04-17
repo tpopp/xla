@@ -589,10 +589,13 @@ cc_library(
     deps = [
         "//xla:util",
         "//xla:xla_proto_cc",
+        "//xla/tsl/platform:env",
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:str_format",
         "@com_google_absl//absl/strings:string_view",
         "@tsl//tsl/platform:path",
+        "@tsl//tsl/platform:platform_port",
         "@tsl//tsl/platform:regexp",
     ],
 )
@@ -694,6 +697,7 @@ xla_cc_test(
         ":logical_buffer",
         "//xla:debug_options_flags",
         "//xla:shape_util",
+        "//xla:util",
         "//xla:xla_proto_cc",
         "//xla/hlo/analysis:alias_info",
         "//xla/hlo/analysis:hlo_ordering",
@@ -709,10 +713,12 @@ xla_cc_test(
         "//xla/tsl/util/proto:proto_matchers",
         "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:str_format",
         "@com_google_googletest//:gtest",
         "@com_google_protobuf//:protobuf",
         "@tsl//tsl/platform",
         "@tsl//tsl/platform:path",
+        "@tsl//tsl/platform:platform_port",
     ],
 )
 

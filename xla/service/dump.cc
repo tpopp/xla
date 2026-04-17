@@ -585,8 +585,8 @@ std::string FilenameFor(const HloModule& module, string_view prefix,
 
 void DumpToFileInDir(const HloModule& module, string_view file_prefix,
                      string_view file_suffix, string_view contents) {
-  DumpToFileInDir(module.config().debug_options(),
-                  FilenameFor(module, file_prefix, file_suffix), contents);
+  DumpToFileInDirImpl(FilenameFor(module, file_prefix, file_suffix), contents,
+                      GetDumpOptions(module));
 }
 
 void DumpToFileInDir(const DebugOptions& debug_options,
@@ -633,8 +633,10 @@ void DumpProtobufToFile(const tsl::protobuf::Message& proto,
                         absl::string_view filename,
                         absl::AnyInvocable<absl::StatusOr<std::string>(
                             tsl::Env*, const tsl::protobuf::Message&)>
-                            text_formatter) {
-  DumpOptions opts = DumpOptions::Build(debug_options);
+                            text_formatter,
+                        const DumpOptions* override_opts) {
+  DumpOptions opts =
+      override_opts ? *override_opts : DumpOptions::Build(debug_options);
   tsl::Env* env = tsl::Env::Default();
   const std::string& dir = opts.dump_to;
   if (dir.empty()) {
@@ -675,7 +677,9 @@ void DumpPerModuleProtobufToFile(const HloModule& module,
                                      tsl::Env*, const tsl::protobuf::Message&)>
                                      text_formatter) {
   const std::string filename = FilenameFor(module, TimestampFor(module), name);
-  DumpProtobufToFile(proto, debug_options, filename, std::move(text_formatter));
+  DumpOptions opts = GetDumpOptions(module.name(), debug_options);
+  DumpProtobufToFile(proto, debug_options, filename, std::move(text_formatter),
+                     &opts);
 }
 
 void DumpPerExecutionProtobufToFile(
@@ -694,7 +698,9 @@ void DumpPerExecutionProtobufToFile(
 
   const std::string filename = FilenameFor(
       module, name, absl::StrFormat("execution_%04d", execution_count));
-  DumpProtobufToFile(proto, debug_options, filename, std::move(text_formatter));
+  DumpOptions opts = GetDumpOptions(module.name(), debug_options);
+  DumpProtobufToFile(proto, debug_options, filename, std::move(text_formatter),
+                     &opts);
 }
 
 std::string GetRepeatedValueAsString(
@@ -1092,7 +1098,7 @@ void DumpHloUnoptimizedSnapshotIfEnabled(
       LOG(ERROR) << "Failed to close HLO unoptimized snapshot proto file";
     }
   } else {
-    DumpProtobufToFile(hlo_snapshot, opts, filename, nullptr);
+    DumpProtobufToFile(hlo_snapshot, opts, filename, nullptr, &canonical_opts);
   }
 }
 

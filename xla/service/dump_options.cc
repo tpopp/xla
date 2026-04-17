@@ -20,9 +20,12 @@ limitations under the License.
 
 #include "absl/log/log.h"
 #include "absl/strings/ascii.h"
+#include "absl/strings/str_format.h"
 #include "absl/strings/string_view.h"
+#include "xla/tsl/platform/env.h"
 #include "xla/util.h"
 #include "xla/xla.pb.h"
+#include "tsl/platform/host_info.h"
 #include "tsl/platform/path.h"
 #include "tsl/platform/regexp.h"
 
@@ -33,8 +36,11 @@ DumpOptions DumpOptions::Build(const DebugOptions& opts,
   DumpOptions dump_options(opts);
   if (dump_options.dump_hlo_to_subfolder && !dump_options.dump_to.empty() &&
       !dump_options.dumping_to_stdout() && !module_name.empty()) {
+    std::string pid_hostname_dir = absl::StrFormat(
+        "%s_%d", tsl::port::Hostname(), tsl::Env::Default()->GetProcessId());
     dump_options.dump_to = tsl::io::JoinPath(
-        dump_options.dump_to, SanitizeFileName(std::string(module_name)));
+        dump_options.dump_to, SanitizeFileName(std::string(module_name)),
+        SanitizeFileName(pid_hostname_dir));
   }
   return dump_options;
 }
