@@ -3021,6 +3021,7 @@ cc_library(
         "//xla:shape_util",
         "//xla:xla_data_proto_cc",
         "//xla/backends/gpu:ffi",
+        "//xla/backends/gpu/libraries/cub:cub_sort_utils",
         "//xla/ffi",
         "//xla/ffi:ffi_api",
         "//xla/service/gpu:cublas_cudnn",
