@@ -79,7 +79,11 @@ static absl::StatusOr<std::vector<size_t>> ResolveArgumentsMapping(
   for (size_t i = 0; i < entry_layout.parameter_count(); ++i) {
     ShapeUtil::ForEachLeafShape(
         entry_layout.parameter_shape(i),
-        [&](const Shape&, const ShapeIndex& index) {
+        [&](const Shape& shape, const ShapeIndex& index) {
+          // Tokens are not backed by buffers, skip them.
+          if (shape.IsToken()) {
+            return;
+          }
           size_t arg_index = executable_arg_index.size();
           executable_arg_index[ArgumentIndex{i, index}] = arg_index;
         });
@@ -119,7 +123,11 @@ static absl::StatusOr<std::vector<size_t>> ResolveResultMapping(
   // Mapping from result index to flattened executable result index.
   absl::flat_hash_map<ShapeIndex, size_t> executable_res_index;
   ShapeUtil::ForEachLeafShape(entry_layout.result_shape(),
-                              [&](const Shape&, const ShapeIndex& index) {
+                              [&](const Shape& shape, const ShapeIndex& index) {
+                                // Tokens are not backed by buffers, skip them.
+                                if (shape.IsToken()) {
+                                  return;
+                                }
                                 size_t res_index = executable_res_index.size();
                                 executable_res_index[index] = res_index;
                               });
