@@ -4912,13 +4912,9 @@ cc_library(
     hdrs = ["host_offload_utils.h"],
     deps = [
         ":call_graph",
-        ":hlo_buffer",
         ":memory_annotations_hdr",
-        ":pattern_matcher",
-        "//xla:literal_util",
         "//xla:shape_util",
         "//xla:side_effect_util",
-        "//xla:status_macros",
         "//xla:util",
         "//xla/hlo/ir:hlo",
         "//xla/tsl/platform:errors",
@@ -4929,11 +4925,7 @@ cc_library(
         "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
-        "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:str_format",
-        "@tsl//tsl/platform:errors",
-        "@tsl//tsl/platform:status",
-        "@tsl//tsl/platform:statusor",
     ],
 )
 
