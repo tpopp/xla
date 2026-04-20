@@ -235,6 +235,12 @@ SymbolicExpr CanonicalizeMul(SymbolicExpr lhs, SymbolicExpr rhs) {
     }
   }
 
+  // Associativity: (X * C) * Y => (X * Y) * C
+  if (lhs.GetType() == SymbolicExprType::kMul &&
+      lhs.GetRHS().GetType() == SymbolicExprType::kConstant) {
+    return (lhs.GetLHS() * rhs * lhs.GetRHS()).Canonicalize();
+  }
+
   // Distribute Mul over Add: (A + B) * C => (A * C) + (B * C)
   if (lhs.GetType() == SymbolicExprType::kAdd) {
     return ((lhs.GetLHS() * rhs) + (lhs.GetRHS() * rhs)).Canonicalize();
