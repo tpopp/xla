@@ -226,6 +226,22 @@ void PrepopulateTileNames(
   }
 }
 
+std::string TiledHloOperandsToString(
+    const TiledHloInstruction* tiled_hlo,
+    const absl::flat_hash_map<const TiledHloInstruction*, std::string>&
+        tile_names) {
+  const HloInstruction* hlo = tiled_hlo->hlo();
+  if (auto parameter = DynCast<HloParameterInstruction>(hlo)) {
+    return std::to_string(parameter->parameter_number());
+  }
+  absl::InlinedVector<std::string, 4> operand_names;
+  for (const auto& operand : tiled_hlo->operands()) {
+    CHECK(tile_names.contains(operand)) << operand->hlo()->name();
+    operand_names.push_back(tile_names.at(operand));
+  }
+  return absl::StrJoin(operand_names, ", ");
+}
+
 // Recursively prints `tiled_hlo` and all instructions within its regions.
 void PrintTiledHloInstruction(
     const TiledHloInstruction* tiled_hlo,
@@ -233,15 +249,9 @@ void PrintTiledHloInstruction(
         tile_names,
     std::stringstream& ss, int indent) {
   std::string indentation(indent, ' ');
-  absl::InlinedVector<std::string, 4> operand_names;
-  for (const auto& operand : tiled_hlo->operands()) {
-    CHECK(tile_names.contains(operand)) << operand->hlo()->name();
-    operand_names.push_back(tile_names.at(operand));
-  }
-
   ss << indentation << tile_names.at(tiled_hlo) << " = "
      << HloOpcodeString(tiled_hlo->hlo()->opcode()) << "("
-     << absl::StrJoin(operand_names, ", ") << ") "
+     << TiledHloOperandsToString(tiled_hlo, tile_names) << ") "
      << tiled_hlo->tile().ToString(false) << "\n";
 
   for (auto const& [i, region] : llvm::enumerate(tiled_hlo->hlo_regions())) {

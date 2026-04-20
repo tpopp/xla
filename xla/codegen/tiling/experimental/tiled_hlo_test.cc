@@ -156,7 +156,7 @@ Root tiles:
 0 root tile:  offsets [tid_0 * 4] sizes [4] strides [1] upper bounds [2]
 
 Tiled HLO:
-  p0.tile_0 = parameter()  offsets [tid_0 * 4, tid_1 * 100] sizes [4, 100] strides [1, 1] upper bounds [2, 97]
+  p0.tile_0 = parameter(0)  offsets [tid_0 * 4, tid_1 * 100] sizes [4, 100] strides [1, 1] upper bounds [2, 97]
   constant.tile_0 = constant()  offsets [] sizes [] strides [] upper bounds []
   reduce.tile_0 = reduce(p0.tile_0, constant.tile_0)  offsets [tid_0 * 4] sizes [4] strides [1] upper bounds [2]
   )"));
@@ -200,8 +200,8 @@ Root tiles:
 0 root tile:  offsets [tid_0 * 8, tid_1 * 128] sizes [8, 128] strides [1, 1] upper bounds [2, 97]
 
 Tiled HLO:
-  p0.2.tile_0 = parameter()  offsets [tid_0 * 8, tid_1 * 128] sizes [8, 128] strides [1, 1] upper bounds [2, 97]
-  p0.2.tile_1 = parameter()  offsets [tid_0 * 8, tid_2 * 128] sizes [8, 128] strides [1, 1] upper bounds [2, 97]
+  p0.2.tile_0 = parameter(0)  offsets [tid_0 * 8, tid_1 * 128] sizes [8, 128] strides [1, 1] upper bounds [2, 97]
+  p0.2.tile_1 = parameter(0)  offsets [tid_0 * 8, tid_2 * 128] sizes [8, 128] strides [1, 1] upper bounds [2, 97]
   constant.tile_0 = constant()  offsets [] sizes [] strides [] upper bounds []
   reduce.tile_0 = reduce(p0.2.tile_1, constant.tile_0)  offsets [tid_0 * 8] sizes [8] strides [1] upper bounds [2]
   broadcast.tile_0 = broadcast(reduce.tile_0)  offsets [tid_0 * 8, tid_1 * 128] sizes [8, 128] strides [1, 1] upper bounds [2, 97]
@@ -248,13 +248,13 @@ Root tiles:
 Tiled HLO:
   concatenate.tile_0 = concatenate(p0.1.tile_0, p1.1.tile_0, p2.1.tile_0)  offsets [tid_0 * 3] sizes [3] strides [1] upper bounds [18]
   region #0 {
-    p0.1.tile_0 = parameter()  offsets [tid_0 * 3] sizes [3] strides [1] upper bounds [6]
+    p0.1.tile_0 = parameter(0)  offsets [tid_0 * 3] sizes [3] strides [1] upper bounds [6]
   }
   region #1 {
-    p1.1.tile_0 = parameter()  offsets [tid_0 * 3 - 6] sizes [3] strides [1] upper bounds [6]
+    p1.1.tile_0 = parameter(1)  offsets [tid_0 * 3 - 6] sizes [3] strides [1] upper bounds [6]
   }
   region #2 {
-    p2.1.tile_0 = parameter()  offsets [tid_0 * 3 - 12] sizes [3] strides [1] upper bounds [6]
+    p2.1.tile_0 = parameter(2)  offsets [tid_0 * 3 - 12] sizes [3] strides [1] upper bounds [6]
   }
   )"));
 
@@ -293,8 +293,8 @@ TEST_F(TileAnalysisTest, Dot) {
      Tiled HLO:
        dot.tile_0 = dot(p0.1.tile_0, p1.1.tile_0)  offsets [tid_0, tid_1 * 2] sizes [1, 2] strides [1, 1] upper bounds [4, 16]
        region #0 {
-         p0.1.tile_0 = parameter()  offsets [tid_0, tid_2 * 4] sizes [1, 4] strides [1, 1] upper bounds [4, 8]
-         p1.1.tile_0 = parameter()  offsets [tid_2 * 4, tid_1 * 2] sizes [4, 2] strides [1, 1] upper bounds [8, 16]
+         p0.1.tile_0 = parameter(0)  offsets [tid_0, tid_2 * 4] sizes [1, 4] strides [1, 1] upper bounds [4, 8]
+         p1.1.tile_0 = parameter(1)  offsets [tid_2 * 4, tid_1 * 2] sizes [4, 2] strides [1, 1] upper bounds [8, 16]
        }
   )"));
 
@@ -333,8 +333,8 @@ Root tiles:
 Tiled HLO:
   dot.tile_0 = dot(p0.1.tile_0, p1.1.tile_0)  offsets [tid_0 * 32, tid_1 * 32] sizes [32, 32] strides [1, 1] upper bounds [4, 16]
   region #0 {
-    p0.1.tile_0 = parameter()  offsets [tid_0 * 32, tid_2 * 32] sizes [32, 32] strides [1, 1] upper bounds [4, 8]
-    p1.1.tile_0 = parameter()  offsets [tid_2 * 32, tid_1 * 32] sizes [32, 32] strides [1, 1] upper bounds [8, 16]
+    p0.1.tile_0 = parameter(0)  offsets [tid_0 * 32, tid_2 * 32] sizes [32, 32] strides [1, 1] upper bounds [4, 8]
+    p1.1.tile_0 = parameter(1)  offsets [tid_2 * 32, tid_1 * 32] sizes [32, 32] strides [1, 1] upper bounds [8, 16]
   }
   )"));
 
@@ -377,10 +377,10 @@ Root tiles:
 Tiled HLO:
   dot.tile_0 = scaled-dot(lhs.1.tile_0, rhs.1.tile_0, lhs_scale.1.tile_0, rhs_scale.1.tile_0)  offsets [tid_0 * 2, tid_1 * 4] sizes [2, 4] strides [1, 1] upper bounds [128, 128]
   region #0 {
-    lhs.1.tile_0 = parameter()  offsets [tid_0 * 2, tid_2 * 8] sizes [2, 8] strides [1, 1] upper bounds [128, 64]
-    rhs.1.tile_0 = parameter()  offsets [tid_2 * 8, tid_1 * 4] sizes [8, 4] strides [1, 1] upper bounds [64, 128]
-    lhs_scale.1.tile_0 = parameter()  offsets [tid_0 * 2, (tid_2 * 8) floordiv 32] sizes [2, (tid_2 * 8 + 7) floordiv 32 - tid_2 floordiv 4 + 1] strides [1, 1] upper bounds [128, 2]
-    rhs_scale.1.tile_0 = parameter()  offsets [(tid_2 * 8) floordiv 32, tid_1 * 4] sizes [(tid_2 * 8 + 7) floordiv 32 - tid_2 floordiv 4 + 1, 4] strides [1, 1] upper bounds [2, 128]
+    lhs.1.tile_0 = parameter(0)  offsets [tid_0 * 2, tid_2 * 8] sizes [2, 8] strides [1, 1] upper bounds [128, 64]
+    rhs.1.tile_0 = parameter(1)  offsets [tid_2 * 8, tid_1 * 4] sizes [8, 4] strides [1, 1] upper bounds [64, 128]
+    lhs_scale.1.tile_0 = parameter(2)  offsets [tid_0 * 2, (tid_2 * 8) floordiv 32] sizes [2, (tid_2 * 8 + 7) floordiv 32 - tid_2 floordiv 4 + 1] strides [1, 1] upper bounds [128, 2]
+    rhs_scale.1.tile_0 = parameter(3)  offsets [(tid_2 * 8) floordiv 32, tid_1 * 4] sizes [(tid_2 * 8 + 7) floordiv 32 - tid_2 floordiv 4 + 1, 4] strides [1, 1] upper bounds [2, 128]
   }
   )"));
 
@@ -419,7 +419,7 @@ Tiled HLO:
   c7.tile_0 = constant()  offsets [] sizes [] strides [] upper bounds []
   c13.tile_0 = constant()  offsets [] sizes [] strides [] upper bounds []
   add.tile_0 = add(c7.tile_0, c13.tile_0)  offsets [] sizes [] strides [] upper bounds []
-  p0.1.tile_0 = parameter()  offsets [rt_0 + tid_0 * 10] sizes [10] strides [1] upper bounds [rt_0 + 10]
+  p0.1.tile_0 = parameter(0)  offsets [rt_0 + tid_0 * 10] sizes [10] strides [1] upper bounds [rt_0 + 10]
   r.tile_0 = dynamic-slice(p0.1.tile_0, add.tile_0)  offsets [tid_0 * 10] sizes [10] strides [1] upper bounds [10]
   )"));
   EXPECT_THAT(
@@ -462,16 +462,16 @@ Root tiles:
 0 root tile:  offsets [tid_0 * 16] sizes [16] strides [1] upper bounds [10]
 
 Tiled HLO:
-  p0.1.tile_0 = parameter()  offsets [0] sizes [1] strides [1] upper bounds [1]
+  p0.1.tile_0 = parameter(0)  offsets [0] sizes [1] strides [1] upper bounds [1]
   c0.tile_0 = convert(p0.1.tile_0)  offsets [0] sizes [1] strides [1] upper bounds [1]
   slice1.tile_0 = slice(c0.tile_0)  offsets [0] sizes [1] strides [1] upper bounds [1]
   off.tile_0 = reshape(slice1.tile_0)  offsets [] sizes [] strides [] upper bounds []
-  p0.1.tile_1 = parameter()  offsets [rt_1 + 1] sizes [1] strides [1] upper bounds [rt_1 + 2]
+  p0.1.tile_1 = parameter(0)  offsets [rt_1 + 1] sizes [1] strides [1] upper bounds [rt_1 + 2]
   c0.tile_1 = convert(p0.1.tile_1)  offsets [rt_1 + 1] sizes [1] strides [1] upper bounds [rt_1 + 2]
   d1.tile_0 = dynamic-slice(c0.tile_1, off.tile_0)  offsets [1] sizes [1] strides [1] upper bounds [2]
   slice2.tile_0 = slice(d1.tile_0)  offsets [0] sizes [1] strides [1] upper bounds [1]
   off2.tile_0 = reshape(slice2.tile_0)  offsets [] sizes [] strides [] upper bounds []
-  p0.1.tile_2 = parameter()  offsets [rt_1 + rt_0 + tid_0 * 16] sizes [16] strides [1] upper bounds [rt_0 + 10 + rt_1]
+  p0.1.tile_2 = parameter(0)  offsets [rt_1 + rt_0 + tid_0 * 16] sizes [16] strides [1] upper bounds [rt_0 + 10 + rt_1]
   c0.tile_2 = convert(p0.1.tile_2)  offsets [rt_1 + rt_0 + tid_0 * 16] sizes [16] strides [1] upper bounds [rt_0 + 10 + rt_1]
   d1.tile_1 = dynamic-slice(c0.tile_2, off.tile_0)  offsets [rt_0 + tid_0 * 16] sizes [16] strides [1] upper bounds [rt_0 + 10]
   d2.tile_0 = dynamic-slice(d1.tile_1, off2.tile_0)  offsets [tid_0 * 16] sizes [16] strides [1] upper bounds [10]
