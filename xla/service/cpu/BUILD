@@ -440,6 +440,7 @@ xla_test(
     backends = [
         "cpu",
     ],
+    test_cpu_fast_compile = True,
     deps = [
         "//xla/hlo/testlib:verified_hlo_module",
         "//xla/tests:hlo_pjrt_test_base",
