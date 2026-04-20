@@ -5613,6 +5613,7 @@ xla_test(
     srcs = ["topk_rewriter_test.cc"],
     backends = ["interpreter"],
     deps = [
+        ":hlo_cse",
         ":pattern_matcher",
         ":topk_rewriter",
         "//xla:literal_util",
