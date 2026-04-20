@@ -378,6 +378,14 @@ class SymbolicExprParserImpl {
     if (remaining_str_.empty()) {
       return ReportError("Unexpected end of expression");
     }
+    // Unary minus
+    if (absl::ConsumePrefix(&remaining_str_, "-")) {
+      SymbolicExpr expr = ParseFactor();
+      if (!expr) {
+        return SymbolicExpr();
+      }
+      return -expr;
+    }
 
     // Case 1:Function call like max( ... ) or min( ... )
     if (absl::StartsWith(remaining_str_, "max(")) {
