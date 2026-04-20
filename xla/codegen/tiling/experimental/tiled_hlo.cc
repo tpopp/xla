@@ -91,9 +91,10 @@ TiledHloInstruction::runtime_variables() const {
   return runtime_variables;
 }
 
-// A hash set of unique pointers.
+// A hash set of unique pointers to TiledHloInstructions.
 //
-// This set add a few key features on top of absl::flat_hash_set<T*>:
+// This set add a few key features on top of
+// absl::flat_hash_set<TiledHloInstruction*>:
 // * The set takes ownership of the object and deletes the object if an
 //   equivalent element is already in the set.
 // * Values are compared by the value behind the pointer, not the pointer
@@ -105,14 +106,14 @@ TiledHloInstruction::runtime_variables() const {
 //   during the construction of TiledHloComputation from
 //   TiledHloInstructions, we know that instruction are already sorted
 //   in def-before-use order.
-template <typename T>
-class OrderedUniquePtrValueHashSet {
+class OrderedTiledHloPtrSet {
  public:
   // Inserts an element into the set.
   // Returns a pair of a non-owning raw pointer to the element that was inserted
   // (or the element that prevented insertion) and a bool indicating whether the
   // element was inserted.
-  std::pair<T*, bool> Insert(std::unique_ptr<T> elem) {
+  std::pair<TiledHloInstruction*, bool> Insert(
+      std::unique_ptr<TiledHloInstruction> elem) {
     auto [it, inserted] = hash_set_.insert(elem.get());
     if (inserted) {
       data_.push_back(std::move(elem));
@@ -126,25 +127,31 @@ class OrderedUniquePtrValueHashSet {
   }
 
   // Moves data out of the set.
-  std::vector<std::unique_ptr<T>> ExtractData() { return std::move(data_); }
+  std::vector<std::unique_ptr<TiledHloInstruction>> ExtractData() {
+    return std::move(data_);
+  }
 
  private:
   struct PtrHash {
-    size_t operator()(const T* v) const { return absl::HashOf(*v); }
+    size_t operator()(const TiledHloInstruction* v) const {
+      return absl::HashOf(v->hlo(), v->tile());
+    }
   };
 
   struct PtrEqual {
-    bool operator()(const T* lhs, const T* rhs) const {
-      return lhs == rhs || *lhs == *rhs;
+    bool operator()(const TiledHloInstruction* lhs,
+                    const TiledHloInstruction* rhs) const {
+      return lhs == rhs ||
+             (lhs->hlo() == rhs->hlo() && lhs->tile() == rhs->tile());
     }
   };
 
   // Stores non-owning pointers to the elements in the set. Elements are
   // compared by the value behind the pointer, not the pointer itself.
-  absl::flat_hash_set<T*, PtrHash, PtrEqual> hash_set_;
+  absl::flat_hash_set<TiledHloInstruction*, PtrHash, PtrEqual> hash_set_;
 
   // Stores owning pointers to the elements in the set.
-  std::vector<std::unique_ptr<T>> data_;
+  std::vector<std::unique_ptr<TiledHloInstruction>> data_;
 };
 
 // Sorts tiled hlo instructions in def-before-use order, starting from
@@ -272,7 +279,7 @@ absl::InlinedVector<const HloInstruction*, 2> ToInstructions(
                         std::pair<const TiledHloInstruction*, Interval>>&
         rt_symbol_to_tiled_hlo) {
   std::vector<TiledHloInstruction*> worklist = {tiled_root.get()};
-  OrderedUniquePtrValueHashSet<TiledHloInstruction> tiled_hlo_instructions_set;
+  OrderedTiledHloPtrSet tiled_hlo_instructions_set;
 
   while (!worklist.empty()) {
     TiledHloInstruction* tiled_hlo = worklist.back();
@@ -356,7 +363,7 @@ absl::InlinedVector<const HloInstruction*, 2> ToInstructions(
     const HloFusionAdaptor& fusion, std::unique_ptr<TilingSpace> tiling_space) {
   SmallVector<const TiledHloInstruction*> roots;
   SmallVector<const TiledHloInstruction*> roots_with_no_users;
-  OrderedUniquePtrValueHashSet<TiledHloInstruction> tiled_hlo_instructions_set;
+  OrderedTiledHloPtrSet tiled_hlo_instructions_set;
 
   absl::flat_hash_map<int64_t, std::pair<const TiledHloInstruction*, Interval>>
       rt_symbol_to_tiled_hlo;
