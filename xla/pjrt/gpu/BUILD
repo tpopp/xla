@@ -808,7 +808,7 @@ xla_test(
         "nvgpu_any",
     ],
     # Each test case is a separate process since cuda stream errors are sticky.
-    shard_count = 2,
+    shard_count = 4,
     tags = [
         "gpu",
     ],

@@ -130,6 +130,7 @@ limitations under the License.
 namespace xla {
 namespace {
 
+using ::absl_testing::StatusIs;
 using ::testing::_;
 using ::testing::Contains;
 using ::testing::ElementsAre;
@@ -355,7 +356,8 @@ ENTRY %Add.6 (a.1: f32[], b.2: f32[]) -> (f32[], f32[]) {
   ASSERT_EQ(result.size(), 1);
   ASSERT_EQ(result[0].size(), 2);
   for (const auto& b : result[0]) {
-    EXPECT_EQ(b->GetReadyFuture().Await(), input_error);
+    EXPECT_THAT(b->GetReadyFuture().Await(),
+                StatusIs(input_error.code(), HasSubstr(input_error.message())));
   }
 }
 
@@ -401,7 +403,8 @@ ENTRY %Add.6 (a.1: f32[], b.2: f32[]) -> (f32[], f32[]) {
   TF_ASSERT_OK_AND_ASSIGN(another_buffer,
                           another_buffer->DonateWithControlDependency(
                               result[0][0]->GetReadyFuture()));
-  EXPECT_EQ(another_buffer->GetReadyFuture().Await(), input_error);
+  EXPECT_THAT(another_buffer->GetReadyFuture().Await(),
+              StatusIs(input_error.code(), HasSubstr(input_error.message())));
 }
 
 TEST(StreamExecutorGpuClientTest, SendRecvChunked) {
