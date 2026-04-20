@@ -640,7 +640,23 @@ absl::StatusOr<TensorValue> EmitBitcast(
     input_shape.set_element_type(output_shape.element_type());
   }
 
-  // Any Bitcast is decomposable to a transpose+reshape+transpose.
+  // Bitcast is transpose.
+  if (!input_shape.dimensions().empty()) {
+    if (std::optional<std::vector<int64_t>> transpose_dims =
+            ShapeUtil::DeduceTransposeDimensionsForBitcast(input_shape,
+                                                           output_shape)) {
+      return EmitTiledTranspose(b, output_tile_sizes,
+                                llvm::to_vector(*transpose_dims), input);
+    }
+  }
+
+  // Bitcast is reshape.
+  if (ShapeUtil::ReshapeIsBitcast(input_shape, output_shape,
+                                  /*ignore_element_type=*/true)) {
+    return EmitTiledReshape(b, output_tile_sizes, input);
+  }
+
+  // Bitcast is decomposable to a transpose+reshape+transpose.
   auto trt = ShapeUtil::DecomposeBitcastToTrt(input_shape, output_shape);
   TF_RET_CHECK(trt.has_value());
 
@@ -671,7 +687,7 @@ absl::StatusOr<TensorValue> EmitBitcast(
   // the tile sizes of the reshape, we compute the tile sizes backwards, taking
   // the inverse permutation.
   std::vector<int64_t> reshape_tile_sizes =
-      PermuteInverse(operand_tile_sizes, trt->transpose2_dims);
+      PermuteInverse(output_tile_sizes, trt->transpose2_dims);
   TensorValue normalized_reshape;
   if (ShapeUtil::Equal(trt->transpose1_shape, trt->reshape_shape)) {
     normalized_reshape = normalized_input;
