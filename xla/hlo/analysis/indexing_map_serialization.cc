@@ -793,7 +793,7 @@ std::string ToString(const SymbolicMap& symbolic_map,
   // Dimension identifiers.
   ss << '(' << absl::StrJoin(dim_names, ", ") << ')';
   // Range identifiers.
-  if (!range_names.empty() || !rt_names.empty()) {
+  if (!range_names.empty()) {
     ss << '[' << absl::StrJoin(range_names, ", ") << ']';
   }
   // Runtime identifiers.
@@ -899,9 +899,8 @@ std::string ToString(const IndexingMap& indexing_map,
   symbol_names.reserve(range_names.size() + rt_names.size());
   symbol_names.append(range_names.begin(), range_names.end());
   symbol_names.append(rt_names.begin(), rt_names.end());
-  // TODO(b/446856305): Do not use conversion here.
-  ss << ToString(SymbolicMapToAffineMap(indexing_map.GetSymbolicMap()),
-                 dim_names, range_names, rt_names);
+  ss << ToString(indexing_map.GetSymbolicMap(), dim_names, range_names,
+                 rt_names);
   if (dim_vars.empty() && range_vars.empty() && rt_vars.empty()) {
     return ss.str();
   }
@@ -930,10 +929,8 @@ std::string ToString(const IndexingMap& indexing_map,
   const auto& constraints = indexing_map.GetSymbolicConstraints();
   expr_range_strings.reserve(constraints.size());
   for (const auto& [expr, range] : constraints) {
-    auto affine_expr = SymbolicExprToAffineExpr(expr, dim_names.size());
-    expr_range_strings.push_back(
-        absl::StrCat(ToString(affine_expr, dim_names, symbol_names), " in ",
-                     range.ToString()));
+    expr_range_strings.push_back(absl::StrCat(
+        expr.ToString(dim_names, symbol_names), " in ", range.ToString()));
   }
   std::sort(expr_range_strings.begin(), expr_range_strings.end());
   if (!expr_range_strings.empty()) {
