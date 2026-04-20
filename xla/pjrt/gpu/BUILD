@@ -498,7 +498,6 @@ cc_library(
         "//xla/pjrt:pjrt_executable",
         "//xla/pjrt:stream_executor_executable",
         "//xla/pjrt:utils",
-        "//xla/pjrt/gpu/tfrt:tfrt_gpu_client",
         "//xla/service:compiled_module",
         "//xla/service:compiler",
         "//xla/service:dump",
