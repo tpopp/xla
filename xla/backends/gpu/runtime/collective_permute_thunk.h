@@ -98,6 +98,8 @@ class CollectivePermuteThunk : public CollectiveThunk {
   // No rendezvous needed when using P2P memcpy in local mode instead of NCCL.
   bool RequiresRendezvous() const override { return !p2p_memcpy_enabled_; }
 
+  bool CanUseSymmetricBuffer() const override { return buffers().size() == 1; }
+
   absl::Status InitializeCollective(const InitializeParams& params,
                                     const GpuCliqueKey& clique_key) override;
 

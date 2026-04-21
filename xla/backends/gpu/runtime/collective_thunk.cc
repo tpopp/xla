@@ -238,39 +238,6 @@ absl::StatusOr<std::vector<DeviceBufferPair>> ConvertToDeviceBuffers(
   return device_buffers;
 }
 
-absl::Status MaybeRegisterBuffer(se::StreamExecutor* executor,
-                                 const se::DeviceAddressBase& buffer,
-                                 Communicator* comm,
-                                 bool use_symmetric_buffer) {
-  ASSIGN_OR_RETURN(auto range, executor->GetMemoryRange(buffer));
-  XLA_VLOG_DEVICE(1, executor->device_ordinal())
-      << "Registering range: " << range.opaque()
-      << " with size: " << range.size() << " for buffer: " << buffer.opaque()
-      << " with size: " << buffer.size()
-      << " is symmetric: " << (use_symmetric_buffer ? "true" : "false");
-  // If the collective memory buffer is a slice of a larger preallocated buffer,
-  // we need to register the entire preallocated buffer once.
-  return comm->RegisterBufferOnce(range, executor->device_ordinal(),
-                                  use_symmetric_buffer);
-}
-
-absl::Status MaybeRegisterBuffers(se::StreamExecutor* executor,
-                                  const std::vector<DeviceBufferPair>& buffers,
-                                  Communicator* comm,
-                                  bool use_symmetric_buffer) {
-  for (int i = 0; i < buffers.size(); ++i) {
-    if (buffers[i].source_memory_space == kCollectiveMemorySpaceColor) {
-      RETURN_IF_ERROR(MaybeRegisterBuffer(executor, buffers[i].source_buffer,
-                                          comm, use_symmetric_buffer));
-    }
-    if (buffers[i].destination_memory_space == kCollectiveMemorySpaceColor) {
-      RETURN_IF_ERROR(MaybeRegisterBuffer(
-          executor, buffers[i].destination_buffer, comm, use_symmetric_buffer));
-    }
-  }
-  return absl::OkStatus();
-}
-
 absl::StatusOr<CollectiveBufferProto> CollectiveThunk::Buffer::ToProto() const {
   CollectiveBufferProto proto;
   proto.set_element_count(element_count);
@@ -329,12 +296,17 @@ absl::Status CollectiveThunk::Prepare(const PrepareParams& params) {
 
   if (CanUseSymmetricBuffer() && config().use_symmetric_buffer) {
     for (const Buffer& buffer : buffers_) {
-      TF_RETURN_IF_ERROR(
-          params.collective_memory_requests->RequestSymmetricAllocation(
-              clique_key, buffer.source_buffer.slice.index()));
-      TF_RETURN_IF_ERROR(
-          params.collective_memory_requests->RequestSymmetricAllocation(
-              clique_key, buffer.destination_buffer.slice.index()));
+      if (buffer.source_memory_space == kCollectiveMemorySpaceColor) {
+        TF_RETURN_IF_ERROR(
+            params.collective_memory_requests->RequestSymmetricAllocation(
+                clique_key, buffer.source_buffer.slice.index()));
+      }
+
+      if (buffer.destination_memory_space == kCollectiveMemorySpaceColor) {
+        TF_RETURN_IF_ERROR(
+            params.collective_memory_requests->RequestSymmetricAllocation(
+                clique_key, buffer.destination_buffer.slice.index()));
+      }
     }
   }
 

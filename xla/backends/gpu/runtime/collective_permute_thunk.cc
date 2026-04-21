@@ -384,8 +384,6 @@ absl::Status RunCollectivePermute(P2PConfig::SourceTargetRanks source_target,
       TF_RETURN_IF_ERROR(future.Await());
     }
   } else {
-    TF_RETURN_IF_ERROR(MaybeRegisterBuffers(stream.parent(), buffers, &comm,
-                                            use_symmetric_buffer));
     auto* gpu_comm = tsl::down_cast<GpuCommunicator*>(&comm);
     auto future = gpu_comm->GroupExecute(
         [&source_target, &buffers, &src_addrs, &dest_addrs, &target_ranks,

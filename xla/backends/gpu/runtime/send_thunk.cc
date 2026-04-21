@@ -41,7 +41,6 @@ limitations under the License.
 #include "xla/runtime/device_id.h"
 #include "xla/service/buffer_assignment.h"
 #include "xla/service/computation_placer.h"
-#include "xla/status_macros.h"
 #include "xla/stream_executor/device_address.h"
 #include "xla/stream_executor/stream.h"
 #include "xla/tsl/platform/errors.h"
@@ -134,7 +133,6 @@ absl::Status RunSend(DeviceBufferPair& buffer, se::Stream& stream,
   // Send source buffer to target peer if needed.
   VLOG(3) << "[" << device_ordinal << "] target_id: " << target_id
           << ", call comm.Send()";
-  TF_RETURN_IF_ERROR(MaybeRegisterBuffers(stream.parent(), {buffer}, &comm));
   auto future = comm.Send(src_addr, buffer.element_type, buffer.element_count,
                           RankId(target_id), GpuCollectives::On(stream));
   TF_RETURN_IF_ERROR(future.Await());

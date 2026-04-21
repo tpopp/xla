@@ -64,6 +64,8 @@ class SendThunk : public CollectiveThunk {
  protected:
   bool RequiresRendezvous() const override { return false; }
 
+  bool CanUseSymmetricBuffer() const override { return true; }
+
   absl::Status RunCollective(const ExecuteParams& params,
                              const GpuCliqueKey& clique_key, se::Stream& stream,
                              Communicator& comm) override;

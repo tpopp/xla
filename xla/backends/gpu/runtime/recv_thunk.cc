@@ -136,7 +136,6 @@ absl::Status RunRecv(DeviceBufferPair& buffer, se::Stream& stream,
   if (source_id) {
     VLOG(3) << "[" << device_ordinal << "] source_id: " << *source_id
             << ", call comm.Recv()";
-    TF_RETURN_IF_ERROR(MaybeRegisterBuffers(stream.parent(), {buffer}, &comm));
     auto future =
         comm.Recv(dest_addr, buffer.element_type, buffer.element_count,
                   RankId(*source_id), GpuCollectives::On(stream));
