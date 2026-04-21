@@ -194,13 +194,6 @@ static absl::StatusOr<std::unique_ptr<Command>> Convert(
       "command buffer command");
 }
 
-static absl::StatusOr<std::unique_ptr<Command>> Convert(
-    const LegacyCustomCallThunk& thunk) {
-  return std::make_unique<LegacyCustomCallCmd>(
-      thunk.target_name(), thunk.call_target(), thunk.operands(),
-      thunk.results(), thunk.opaque());
-}
-
 //===----------------------------------------------------------------------===//
 static absl::StatusOr<std::unique_ptr<Command>> CopyMetadata(
     absl::StatusOr<std::unique_ptr<Command>> cmd, const Thunk& thunk) {
@@ -242,13 +235,18 @@ static absl::Status AppendCommands(ConversionContext& ctx,
     case Thunk::Kind::kCopy:
       cmd_sequence.Append(static_cast<DeviceToDeviceCopyThunk*>(&thunk));
       return absl::OkStatus();
+    // LegacyCustomCallThunk implements TracedCommand directly; append as
+    // borrowed pointer — the thunk outlives the command sequence. Note: in
+    // production, command_buffer_conversion_pass excludes
+    // LegacyCustomCallThunk from automatic conversion, so this arm is only
+    // reached when the emitter is invoked directly (e.g. tests).
     case Thunk::Kind::kCustomCall:
       if (auto* ffi_thunk = dynamic_cast<const CustomCallThunk*>(&thunk)) {
         return append(Convert(*ffi_thunk));
       }
-      if (auto* legacy_thunk =
-              dynamic_cast<const LegacyCustomCallThunk*>(&thunk)) {
-        return append(Convert(*legacy_thunk));
+      if (auto* legacy_thunk = dynamic_cast<LegacyCustomCallThunk*>(&thunk)) {
+        cmd_sequence.Append(legacy_thunk);
+        return absl::OkStatus();
       }
       return absl::InternalError("Unknown custom call thunk type");
     // CustomKernelThunk implements Command directly; append borrowed pointer.
