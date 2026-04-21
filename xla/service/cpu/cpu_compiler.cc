@@ -1697,8 +1697,14 @@ CpuCompiler::CompileCpuExecutable(
   ModuleHook pre_optimization_ir_hook;
   ModuleHook post_optimization_ir_hook;
   std::tie(pre_optimization_ir_hook, post_optimization_ir_hook) =
-      GetIRModuleHooks(*module, user_pre_optimization_hook_,
-                       user_post_optimization_hook_);
+      GetIRModuleHooks(
+          *module,
+          [this](const llvm::Module& module) {
+            CallUserPreOptimizationHook(module);
+          },
+          [this](const llvm::Module& module) {
+            CallUserPostOptimizationHook(module);
+          });
 
   // Compile must be thread-safe so create a new LLVM context for the module.
   mlir::MLIRContext mlir_context;

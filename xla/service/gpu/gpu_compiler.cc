@@ -2283,9 +2283,7 @@ GpuCompiler::CompileSingleModule(
     }
   }
 
-  if (user_post_optimization_hook_) {
-    user_post_optimization_hook_(*llvm_module);
-  }
+  CallUserPostOptimizationHook(*llvm_module);
 
   return result;
 }
@@ -2552,11 +2550,9 @@ GpuCompiler::CompileToBackendResult(
         std::move(llvm_compiler),
         gpu_topology.gpu_target_config().device_description,
         module->config().debug_options());
-    if (user_pre_optimization_hook_) {
-      kernel_compiler.SetPreOptimizationHook([&](const llvm::Module& module) {
-        user_pre_optimization_hook_(module);
-      });
-    }
+    kernel_compiler.SetPreOptimizationHook([&](const llvm::Module& module) {
+      CallUserPreOptimizationHook(module);
+    });
 
     // Compile the module to thunks and llvm IR.
     xla::cpu::TargetMachineOptions cpu_target_machine_options =
@@ -2576,18 +2572,13 @@ GpuCompiler::CompileToBackendResult(
        compile_module_results.llvm_modules) {
     llvm_ir::DumpIrIfEnabled(*module, *llvm_module,
                              /*optimized=*/false);
-    if (user_pre_optimization_hook_) {
-      user_pre_optimization_hook_(*llvm_module);
-    }
+    CallUserPreOptimizationHook(*llvm_module);
   }
   if (compile_module_results.llvm_module_constants != nullptr) {
     llvm_ir::DumpIrIfEnabled(*module,
                              *compile_module_results.llvm_module_constants,
                              /*optimized=*/false, "constants");
-    if (user_pre_optimization_hook_) {
-      user_pre_optimization_hook_(
-          *compile_module_results.llvm_module_constants);
-    }
+    CallUserPreOptimizationHook(*compile_module_results.llvm_module_constants);
 
     if (!can_use_link_modules) {
       compile_module_results.llvm_modules.push_back(
@@ -3219,11 +3210,8 @@ GpuCompiler::LoadExecutableFromAotResult(
   CubinCustomKernelCompiler kernel_compiler(
       std::move(llvm_compiler), device_description,
       hlo_module->config().debug_options());
-  if (user_pre_optimization_hook_) {
-    kernel_compiler.SetPreOptimizationHook([&](const llvm::Module& module) {
-      user_pre_optimization_hook_(module);
-    });
-  }
+  kernel_compiler.SetPreOptimizationHook(
+      [&](const llvm::Module& module) { CallUserPreOptimizationHook(module); });
 
   IrEmitterContext ir_emitter_context(
       hlo_module.get(), buffer_assignment.get(), &execution_stream_assignment,
