@@ -1623,6 +1623,7 @@ xla_test(
     backends = [
         "gpu",
     ],
+    shard_count = 3,
     deps = [
         ":collective_ops_e2e_test_base",
         "//xla:array",
