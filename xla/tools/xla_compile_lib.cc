@@ -113,8 +113,19 @@ static absl::StatusOr<std::string> CompileGpuExecutable(
   hlo_module->mutable_config()
       .mutable_debug_options()
       .set_xla_gpu_experimental_aot_compiled_thunks(true);
-  hlo_module->mutable_config().set_replica_count(num_replicas);
-  hlo_module->mutable_config().set_num_partitions(num_partitions);
+  // Set the number of replicas and partitions in the HLO module
+  // config only if they are non-trivial (meaning passed as command line
+  // flags), otherwise the values from the HLO module will be used.
+  if (num_replicas > 1) {
+    hlo_module->mutable_config().set_replica_count(num_replicas);
+  } else {
+    num_replicas = hlo_module->config().replica_count();
+  }
+  if (num_partitions > 1) {
+    hlo_module->mutable_config().set_num_partitions(num_partitions);
+  } else {
+    num_partitions = hlo_module->config().num_partitions();
+  }
 
   if (aot) {
     AotCompilationOptions aot_options(platform_id);

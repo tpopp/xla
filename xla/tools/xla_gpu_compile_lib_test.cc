@@ -95,6 +95,20 @@ TEST_F(XlaCompileLibTest, CompilesForGpuWithDevice) {
   EXPECT_TRUE(result.has_hlo_module()) << result.DebugString();
 }
 
+TEST_F(XlaCompileLibTest, DoesNotOverridePartitionsAndReplicas) {
+  module_->mutable_config().set_num_partitions(3);
+  module_->mutable_config().set_replica_count(3);
+  CompilationResult result;
+  ASSERT_OK_AND_ASSIGN(
+      std::string hlo_text,
+      CompileExecutable(std::move(module_), BackendType::kGpu,
+                        /*gpu_target_config=*/std::nullopt,
+                        /*cpu_target_config=*/std::nullopt,
+                        /*num_partitions=*/1, /*num_replicas=*/1, result));
+  EXPECT_THAT(hlo_text, ::testing::HasSubstr("num_partitions=3"));
+  EXPECT_THAT(hlo_text, ::testing::HasSubstr("replica_count=3"));
+}
+
 TEST_F(XlaCompileLibTest, CompilesForGpuWithoutDevice) {
   const std::string spec_file =
       test_runner().HasProperty(HloRunnerPropertyTag::kUsingGpuRocm)
