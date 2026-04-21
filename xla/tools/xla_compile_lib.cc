@@ -466,6 +466,23 @@ absl::Status XlaCompileMain(const XlaCompileOptions& options) {
   if (options.use_shardy_partitioner) {
     hlo_module->mutable_config().set_use_shardy_partitioner(true);
   }
+  if (options.force_auto_layout) {
+    // AotCompilationOptions does not support forcing auto layout, so clearing
+    // it on the hlo module level.
+    for (int i = 0;
+         i < hlo_module->mutable_entry_computation_layout()->parameter_count();
+         ++i) {
+      hlo_module->mutable_entry_computation_layout()
+          ->mutable_parameter_layout(i)
+          ->Clear();
+    }
+    hlo_module->mutable_entry_computation_layout()
+        ->mutable_result_layout()
+        ->Clear();
+    hlo_module->mutable_config()
+        .mutable_debug_options()
+        .set_xla_pjrt_allow_auto_layout_in_hlo(true);
+  }
 
   if (!options.gpu_options.target_platform_version.empty() &&
       gpu_cfg.has_value()) {
