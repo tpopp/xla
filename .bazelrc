@@ -17,4 +17,8 @@ import %workspace%/warnings.bazelrc
 # Treat warnings as errors
 build --config=warnings 
 
+# Enable layering check for CI builds
+common:rbe_linux_cpu --features=layering_check
+common:bzlmod --features=-layering_check
+
 try-import %workspace%/xla_configure.bazelrc
