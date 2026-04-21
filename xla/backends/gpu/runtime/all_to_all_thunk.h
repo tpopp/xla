@@ -88,6 +88,8 @@ class AllToAllThunk : public CollectiveThunk {
 
   bool is_local(int device_count) const;
 
+  bool CanUseSymmetricBuffer() const override { return true; }
+
  private:
   const AllToAllConfig config_;
   bool p2p_memcpy_enabled_ = false;

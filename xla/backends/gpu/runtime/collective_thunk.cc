@@ -327,6 +327,17 @@ absl::Status CollectiveThunk::Prepare(const PrepareParams& params) {
   RETURN_IF_ERROR(params.collective_clique_requests->RequestClique(
       clique_key, *device_groups_, GetCliqueRequirements(clique_key)));
 
+  if (CanUseSymmetricBuffer() && config().use_symmetric_buffer) {
+    for (const Buffer& buffer : buffers_) {
+      TF_RETURN_IF_ERROR(
+          params.collective_memory_requests->RequestSymmetricAllocation(
+              clique_key, buffer.source_buffer.slice.index()));
+      TF_RETURN_IF_ERROR(
+          params.collective_memory_requests->RequestSymmetricAllocation(
+              clique_key, buffer.destination_buffer.slice.index()));
+    }
+  }
+
   return PrepareCollective(params, clique_key);
 }
 

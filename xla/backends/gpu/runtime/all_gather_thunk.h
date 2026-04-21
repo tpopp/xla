@@ -71,6 +71,8 @@ class AllGatherThunk : public CollectiveThunk {
                              const GpuCliqueKey& clique_key, se::Stream& stream,
                              Communicator& comm) override;
 
+  bool CanUseSymmetricBuffer() const override { return true; }
+
  private:
   const AllGatherConfig config_;
 };

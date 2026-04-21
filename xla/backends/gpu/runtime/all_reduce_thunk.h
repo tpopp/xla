@@ -102,6 +102,8 @@ class AllReduceThunk : public AllReduceReduceScatterThunkBase {
                              const GpuCliqueKey& clique_key, se::Stream& stream,
                              Communicator& comm) override;
 
+  bool CanUseSymmetricBuffer() const override { return true; }
+
  private:
   std::unique_ptr<CollectiveKernelThunk> collective_kernel_thunk_;
 };

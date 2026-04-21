@@ -167,6 +167,8 @@ class CollectiveThunk : public Thunk {
 
   virtual const CollectiveConfig& config() const = 0;
 
+  virtual bool CanUseSymmetricBuffer() const { return false; }
+
  private:
   const std::vector<Buffer> buffers_;
   // Before and after a first call to this particular instance of a collective
