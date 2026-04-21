@@ -13,7 +13,9 @@
 # limitations under the License.
 # ==============================================================================
 
+load("@local_config_cuda//cuda:build_defs.bzl", "cuda_library")
 load("//xla:xla.default.bzl", "xla_cc_test")
+load("//xla/tests:build_defs.bzl", "xla_test")
 load("//xla/tsl/platform:build_config.bzl", "tf_proto_library")
 load("//xla/tsl/platform:rules_cc.bzl", "cc_library")
 
@@ -67,6 +69,45 @@ xla_cc_test(
     srcs = ["cub_sort_utils_test.cc"],
     deps = [
         ":cub_sort_utils",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
+cuda_library(
+    name = "generate_cub_scratch_size_lib",
+    testonly = True,
+    srcs = ["generate_cub_scratch_size_lib.cu.cc"],
+    hdrs = ["generate_cub_scratch_size_lib.cu.h"],
+    deps = [
+        ":scratch_space_lookup_table_proto_cc",
+        "//xla/tsl/platform:env",
+        "//xla/tsl/platform:status_macros",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
+        "@com_google_googletest//:gtest",
+        "@local_config_cuda//cuda:cub_headers",  # buildcleaner: keep
+        "@tsl//tsl/platform:path",
+    ],
+)
+
+xla_test(
+    name = "generate_cub_scratch_size_test",
+    srcs = ["generate_cub_scratch_size_test.cc"],
+    backend_tags = {
+        "h100": ["full"],
+        "b200": ["full"],
+        "gb200": ["full"],
+        "gb300": ["full"],
+    },
+    backends = ["gpu"],
+    tags = [
+        "no_oss",  # Stop this test from being run in OSS presubmits
+        "notap",
+    ],
+    deps = [
+        ":generate_cub_scratch_size_lib",
+        "@com_google_absl//absl/status:status_matchers",
         "@com_google_googletest//:gtest_main",
     ],
 )
