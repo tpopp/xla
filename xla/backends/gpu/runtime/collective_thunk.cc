@@ -19,6 +19,7 @@ limitations under the License.
 #include <cstdlib>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "absl/algorithm/container.h"
@@ -42,6 +43,7 @@ limitations under the License.
 #include "xla/debug_options_flags.h"
 #include "xla/hlo/ir/collective_op_group_mode.h"
 #include "xla/primitive_util.h"
+#include "xla/runtime/buffer_use.h"
 #include "xla/runtime/device_id.h"
 #include "xla/service/buffer_assignment.h"
 #include "xla/service/collective_ops_utils.h"
@@ -202,8 +204,11 @@ CollectiveConfig GetCollectiveConfig(
 }
 
 CollectiveThunk::CollectiveThunk(Kind kind, ThunkInfo thunk_info,
+                                 std::vector<Buffer> buffers,
                                  CommunicationId communication_id)
-    : Thunk(kind, thunk_info), communication_id_(communication_id) {}
+    : Thunk(kind, thunk_info),
+      buffers_(std::move(buffers)),
+      communication_id_(communication_id) {}
 
 absl::StatusOr<GpuCliqueKey> GetCollectiveGpuCliqueKey(
     const CollectiveParams& params, const CollectiveConfig& collective_config,
@@ -406,6 +411,18 @@ absl::StatusOr<std::vector<Communicator*>> CollectiveThunk::GetCommunicators(
                    params.collective_cliques->GetComm(
                        clique_key, params.collective_params->global_device_id));
   return std::vector<Communicator*>{comm};
+}
+
+Thunk::BufferUses CollectiveThunk::buffer_uses() const {
+  BufferUses uses;
+  uses.reserve(buffers_.size() * 2);
+  for (const Buffer& buffer : buffers_) {
+    uses.push_back(BufferUse::Read(buffer.source_buffer.slice,
+                                   buffer.source_buffer.shape));
+    uses.push_back(BufferUse::Write(buffer.destination_buffer.slice,
+                                    buffer.destination_buffer.shape));
+  }
+  return uses;
 }
 
 std::string CollectiveThunk::GetDeviceString(

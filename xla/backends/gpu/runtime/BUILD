@@ -2646,6 +2646,7 @@ cc_library(
         "//xla/core/collectives:rank_id",
         "//xla/hlo/ir:collective_op_group_mode",
         "//xla/hlo/ir:hlo",
+        "//xla/runtime:buffer_use",
         "//xla/runtime:device_id",
         "//xla/service:buffer_assignment",
         "//xla/service:collective_ops_utils",
