@@ -2309,12 +2309,6 @@ absl::Status AlgebraicSimplifierVisitor::HandleSubtract(HloInstruction* sub) {
                                           negative_const));
   }
 
-  // A - A => 0 for integer A.
-  VLOG(10) << "trying transform [A - A => 0] for integer A.";
-  if (lhs == rhs && ShapeUtil::ElementIsIntegral(sub->shape())) {
-    return ReplaceInstruction(sub, MakeScalarLike(sub, 0));
-  }
-
   return absl::OkStatus();
 }
 namespace {
