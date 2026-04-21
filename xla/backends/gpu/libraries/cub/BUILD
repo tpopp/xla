@@ -27,6 +27,7 @@ package(
 tf_proto_library(
     name = "scratch_space_lookup_table_proto",
     srcs = ["scratch_space_lookup_table.proto"],
+    visibility = ["//xla/backends/gpu/libraries/cub:__subpackages__"],
 )
 
 cc_library(
