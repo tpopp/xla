@@ -835,7 +835,7 @@ void StreamExecutorGpuClient::ScheduleTransfersOnLocalDevice(
             /*executor=*/gpu::GpuCollectives::On(*stream)));
       } else {
         TF_RETURN_IF_ERROR(gpu_communicator->LaunchRecv(
-            /*send_buffer=*/mem->mem(),
+            /*recv_buffer=*/mem->mem(),
             /*dtype=*/U8,
             /*count=*/mem->mem().size(),
             /*peer=*/RankId(0),
