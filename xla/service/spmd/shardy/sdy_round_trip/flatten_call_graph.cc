@@ -28,10 +28,9 @@ limitations under the License.
 #include "mlir/Pass/PassRegistry.h"
 #include "mlir/Support/TypeID.h"
 #include "mlir/Support/WalkResult.h"
+#include "shardy/dialect/sdy/ir/constants.h"
 #include "shardy/dialect/sdy/ir/dialect.h"
 #include "shardy/dialect/sdy/ir/utils.h"
-#include "xla/service/spmd/shardy/constants.h"
-#include "xla/service/spmd/shardy/utils.h"
 
 namespace xla {
 namespace sdy {
@@ -45,6 +44,24 @@ using ::mlir::func::CallOp;
 using ::mlir::func::FuncOp;
 using ::mlir::sdy::SdyDialect;
 using ::mlir::sdy::TensorShardingPerValueAttr;
+
+FuncOp cloneFuncRecursively(
+    FuncOp funcOp, mlir::SymbolTable& symbolTable,
+    TensorShardingPerValueAttr callOpResultShardings = nullptr) {
+  FuncOp clonedFuncOp = funcOp.clone();
+  clonedFuncOp->setAttr(mlir::sdy::kOriginalFuncName,
+                        mlir::sdy::getOriginalFuncName(funcOp));
+  if (callOpResultShardings) {
+    mlir::sdy::setFuncResultShardings(clonedFuncOp, callOpResultShardings);
+  }
+  clonedFuncOp->walk([&](CallOp callOp) {
+    FuncOp funcOp = symbolTable.lookup<FuncOp>(callOp.getCallee());
+    CHECK(funcOp) << "Failed to lookup function: " << callOp.getCallee().str();
+    callOp.setCallee(symbolTable.insert(cloneFuncRecursively(
+        funcOp, symbolTable, mlir::sdy::getShardingPerValue(callOp))));
+  });
+  return clonedFuncOp;
+}
 
 class SdyRoundTripFlattenCallGraphPass
     : public mlir::PassWrapper<SdyRoundTripFlattenCallGraphPass,
@@ -72,7 +89,7 @@ class SdyRoundTripFlattenCallGraphPass
         return mlir::WalkResult::advance();
       }
       callOp.setCallee(symbolTable.insert(
-          cloneFuncRecursively(funcOp, callOpResultShardings, symbolTable)));
+          cloneFuncRecursively(funcOp, symbolTable, callOpResultShardings)));
       return mlir::WalkResult::advance();
     });
   }

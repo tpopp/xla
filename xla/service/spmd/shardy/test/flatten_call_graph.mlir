@@ -167,14 +167,14 @@ func.func private @bar(%arg0: tensor<8xi32>) -> tensor<8xi32> {
 // CHECK-SAME:  attributes {sdy.original_func_name = "bar"} {
 // CHECK-NEXT:    return
 
-// CHECK-LABEL: func private @bar_2(%arg0: tensor<8xi32>) -> tensor<8xi32>
+// CHECK-LABEL: func private @bar_0_2(%arg0: tensor<8xi32>) -> tensor<8xi32>
 // CHECK-SAME:  attributes {sdy.original_func_name = "bar"} {
 // CHECK-NEXT:    return
 
 // CHECK-LABEL: func private @foo_3(%arg0: tensor<8xi32>) -> tensor<8xi32>
 // CHECK-SAME:  attributes {sdy.original_func_name = "foo"} {
 // CHECK-NEXT:    call @bar_1(
-// CHECK-NEXT:    call @bar_2(
+// CHECK-NEXT:    call @bar_0_2(
 // CHECK-NEXT:    stablehlo.add
 
 // -----

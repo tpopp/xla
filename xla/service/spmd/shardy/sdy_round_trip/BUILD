@@ -164,8 +164,6 @@ cc_library(
     srcs = ["flatten_call_graph.cc"],
     hdrs = ["flatten_call_graph.h"],
     deps = [
-        "//xla/service/spmd/shardy:constants",
-        "//xla/service/spmd/shardy:utils",
         "@com_google_absl//absl/log:check",
         "@llvm-project//llvm:Support",
         "@llvm-project//mlir:Analysis",
