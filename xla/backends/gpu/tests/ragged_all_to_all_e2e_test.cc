@@ -803,6 +803,61 @@ TEST_P(RaggedAllToAllTest,
   EXPECT_TRUE(LiteralTestUtil::Equal(expected_outputs_[1], results[1]));
 }
 
+// This test checks if RaggedAllToAll kernel preserves the initial output data.
+// It updates every second element of the output with the input data, and the
+// other elements are preserved.
+TEST_P(RaggedAllToAllTest, RaggedAllToAll_2GPUs_PreservesInitialData) {
+  absl::string_view kModuleReplicatedStr = R"(
+  HloModule module, num_partitions=1, replica_count=2
+
+  ENTRY entry {
+    io = f32[4] iota(), iota_dimension=0
+    id = u32[] replica-id()
+    ten = u32[] constant(10)
+    id2 = u32[] multiply(id, ten)
+    id3 = f32[] convert(id2)
+    id4 = f32[4] broadcast(id3)
+    input = f32[4] add(io, id4)
+    output = f32[4] constant({-1,-1,-1,-1})
+    send_sizes = s32[2] constant({1,1})
+    recv_sizes = s32[2] constant({1,1})
+    input_offsets = s32[2] constant({0, 2})
+    step = u32[] constant(2)
+    oof = u32[] multiply(id, step)
+    oof2 = s32[] convert(oof)
+    output_offsets = s32[2] broadcast(oof2)
+
+    ROOT ra2a = f32[4] ragged-all-to-all(input, output, input_offsets,
+    send_sizes, output_offsets, recv_sizes), replica_groups={{0,1}}
+  })";
+
+  const int64_t kNumReplicas = 2;
+  ASSERT_GE(device_count(), kNumReplicas)
+      << "Test requires at least " << kNumReplicas << " devices ("
+      << device_count() << " available)";
+
+  TF_ASSERT_OK_AND_ASSIGN(auto module, ParseAndReturnVerifiedModule(
+                                           kModuleReplicatedStr, kNumReplicas));
+
+  // No input arguments are needed
+  std::vector<std::vector<Literal*>> arguments(kNumReplicas);
+
+  expected_outputs_.clear();
+  expected_outputs_.reserve(kNumReplicas);
+  expected_outputs_.push_back(
+      LiteralUtil::CreateR1<float>({0.0f, -1.0f, 10.0f, -1.0f}));
+  expected_outputs_.push_back(
+      LiteralUtil::CreateR1<float>({2.0f, -1.0f, 12.0f, -1.0f}));
+
+  TF_ASSERT_OK_AND_ASSIGN(ExecutionResult execution_result,
+                          ExecuteReplicated(std::move(module), arguments));
+
+  const std::vector<Literal>& results = execution_result.results;
+  ASSERT_EQ(results.size(), kNumReplicas);
+  EXPECT_TRUE(LiteralTestUtil::Equal(expected_outputs_[0], results[0]));
+  EXPECT_TRUE(LiteralTestUtil::Equal(expected_outputs_[1], results[1]));
+}
+
 TEST_P(RaggedAllToAllTest, RaggedAllToAll_8GPUs) {
   absl::string_view kModuleReplicatedStr = R"(
   HloModule module, num_partitions=1
