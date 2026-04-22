@@ -1437,11 +1437,21 @@ absl::StatusOr<ThunkSequence> ThunkEmitter::EmitYnnFusionThunk(
   absl::AnyInvocable<absl::StatusOr<YnnSubgraph>(
       absl::Span<const se::DeviceAddressBase> arguments_buffers)>
       builder;
-  absl::Span<const int64_t> captured_arguments_ids;
   auto* fusion = Cast<HloFusionInstruction>(instruction);
   const HloComputation* computation = fusion->fused_instructions_computation();
+
+  std::vector<int64_t> captured_arguments_ids;
+  captured_arguments_ids.reserve(computation->num_parameters());
+  for (const HloInstruction* param : computation->parameter_instructions()) {
+    const HloInstruction* operand = fusion->operand(param->parameter_number());
+    if (IsConstant(operand)) {
+      captured_arguments_ids.push_back(param->parameter_number());
+    }
+  }
+
   // Construct YNNPACK subgraph builder from the fusion computation.
-  TF_ASSIGN_OR_RETURN(builder, EmitYnnFusionBuilder(computation));
+  TF_ASSIGN_OR_RETURN(
+      builder, EmitYnnFusionBuilder(computation, captured_arguments_ids));
 
   return ThunkSequence::Of<YnnFusionThunk>(
       YnnFusionThunk::Options{}, ThunkInfo(instruction), instruction,

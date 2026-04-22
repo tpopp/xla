@@ -34,6 +34,7 @@ limitations under the License.
 #include "xla/backends/cpu/runtime/ynnpack/ynn_interop.h"
 #include "xla/backends/cpu/ynn_emitter.h"
 #include "xla/backends/cpu/ynn_fusion_options.pb.h"
+#include "xla/backends/cpu/ynn_support.h"
 #include "xla/hlo/ir/hlo_casting_utils.h"
 #include "xla/hlo/ir/hlo_computation.h"
 #include "xla/hlo/ir/hlo_instruction.h"
@@ -129,11 +130,21 @@ absl::StatusOr<std::unique_ptr<Thunk>> YnnFusionThunkFromProto(
   absl::AnyInvocable<absl::StatusOr<YnnSubgraph>(
       absl::Span<const se::DeviceAddressBase> arguments_buffers)>
       builder;
-  absl::Span<const int64_t> captured_arguments_ids;
   auto* fusion = Cast<HloFusionInstruction>(hlo);
   const HloComputation* computation = fusion->fused_instructions_computation();
+
+  std::vector<int64_t> captured_arguments_ids;
+  captured_arguments_ids.reserve(computation->num_parameters());
+  for (const HloInstruction* param : computation->parameter_instructions()) {
+    const HloInstruction* operand = fusion->operand(param->parameter_number());
+    if (IsConstant(operand)) {
+      captured_arguments_ids.push_back(param->parameter_number());
+    }
+  }
+
   // Construct YNNPACK subgraph builder from the fusion computation.
-  TF_ASSIGN_OR_RETURN(builder, EmitYnnFusionBuilder(computation));
+  TF_ASSIGN_OR_RETURN(
+      builder, EmitYnnFusionBuilder(computation, captured_arguments_ids));
 
   return YnnFusionThunk::Create(
       std::move(options), std::move(info), hlo, std::move(arguments),
