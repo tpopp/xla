@@ -362,6 +362,11 @@ xla_test(
             "broken",
             "no_oss",
         ],
+        # See b/491475964 for details.
+        "gb200": [
+            "multi_gpu",
+            "broken",
+        ],
     },
     backends = ["gpu"],
     env = {
