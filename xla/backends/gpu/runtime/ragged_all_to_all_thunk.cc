@@ -722,6 +722,14 @@ absl::Status RunOneShotRaggedAllToAllWithNccl(
       << ", address=" << barrier_signal_symmetric_memory->addr().opaque()
       << ", size=" << barrier_signal_symmetric_memory->addr().size() << ")";
 
+  // 0. Initialization Step
+  // Initialize the temporary symmetric memory with initial values from the
+  // actual output buffer. This ensures that any data not explicitly updated by
+  // incoming P2P writes from peers is preserved.
+  se::DeviceAddressBase output_temporary_symmetric_memory_addr =
+      output_temporary_symmetric_memory->addr();
+  TF_RETURN_IF_ERROR(stream.MemcpyD2D(&output_temporary_symmetric_memory_addr,
+                                      output_buffer, output_buffer.size()));
   // 1. Barrier (Pre-Kernel)
   // Global synchronization before P2P writes.
   // Ensures that all peers have reached this point and their output buffers
@@ -751,7 +759,7 @@ absl::Status RunOneShotRaggedAllToAllWithNccl(
       barrier_signal_value));
 
   TF_RETURN_IF_ERROR(stream.MemcpyD2D(&output_buffer,
-                                      output_temporary_symmetric_memory->addr(),
+                                      output_temporary_symmetric_memory_addr,
                                       output_buffer.size()));
 
   if (VLOG_IS_ON(6)) {

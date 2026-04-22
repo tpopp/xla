@@ -120,11 +120,11 @@ class RaggedAllToAllTestBase : public CollectiveOpsWithFlagsBase {
         module->entry_computation()->parameter_instruction(1);
 
     // The ragged-all-to-all accepts an output tensor as a parameter to allow
-    // buffer reuse. We initialize the output tensor with 0 to make sure that
+    // buffer reuse. We initialize the output tensor with -1 to make sure that
     // we don't accidentally overwrite data that is not part of the
     // ragged-all-to-all update.
     Array<float> output_init_data(output_param->shape().dimensions());
-    output_init_data.Fill(0);
+    output_init_data.Fill(-1);
 
     // Iterate over all replica groups and create random test data for each
     // group.
@@ -511,7 +511,7 @@ TEST_P(RaggedAllToAllTest, RaggedAllToAll_2GPUs_S4) {
   expected_outputs_[0] = LiteralUtil::CreateR2<s4>(
       {{s4(1), s4(1)}, {s4(3), s4(3)}, {s4(4), s4(4)}, {s4(5), s4(5)}});
   expected_outputs_[1] = LiteralUtil::CreateR2<s4>(
-      {{s4(2), s4(2)}, {s4(6), s4(6)}, {s4(0), s4(0)}, {s4(0), s4(0)}});
+      {{s4(2), s4(2)}, {s4(6), s4(6)}, {s4(-1), s4(-1)}, {s4(-1), s4(-1)}});
 
   TF_ASSERT_OK_AND_ASSIGN(
       ExecutionResult execution_result,
