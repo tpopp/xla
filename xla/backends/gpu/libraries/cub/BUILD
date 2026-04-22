@@ -18,6 +18,7 @@ load("//xla:xla.default.bzl", "xla_cc_test")
 load("//xla/tests:build_defs.bzl", "xla_test")
 load("//xla/tsl/platform:build_config.bzl", "tf_proto_library")
 load("//xla/tsl/platform:rules_cc.bzl", "cc_library")
+load("//xla/tsl/util:cc_embed_data.bzl", "cc_embed_data")
 load("//xla/util:build_defs.bzl", "text_to_binary_proto")
 
 package(
@@ -37,11 +38,17 @@ cc_library(
     hdrs = ["cub_scratch_size_deviceless_lookup.h"],
     deps = [
         ":cub_sort_utils",
+        ":embed_cub_scratch_size_lookup_table",
         ":scratch_space_lookup_table_proto_cc",
         "//xla/stream_executor:semantic_version",
+        "//xla/tsl/util:file_toc",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
+        "@riegeli//riegeli/bytes:string_reader",
+        "@riegeli//riegeli/messages:parse_message",
+        "@riegeli//riegeli/zstd:zstd_reader",
+        "@tsl//tsl/platform:path",
     ],
 )
 
@@ -62,6 +69,7 @@ xla_cc_test(
         "//xla/tsl/util/proto:parse_text_proto",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:status_matchers",
+        "@com_google_absl//absl/status:statusor",
         "@com_google_googletest//:gtest_main",
     ],
 )
@@ -121,12 +129,14 @@ genrule(
     srcs = glob(["data/*.textproto"]),
     outs = ["cub_scratch_size_lookup_table.textproto"],
     cmd = "cat /dev/null $(SRCS) > $@",
+    # copybara:uncomment compatible_with = ["//buildenv/target:non_prod"],
 )
 
 text_to_binary_proto(
     name = "cub_scratch_size_lookup_table_binary",
     src = "cub_scratch_size_lookup_table.textproto",
     out = "cub_scratch_size_lookup_table.binarypb",
+    # copybara:uncomment compatible_with = ["//buildenv/target:non_prod"],
     proto_file = ":scratch_space_lookup_table.proto",
     proto_name = "xla.gpu.CubScratchSizeLookupTable",
 )
@@ -143,5 +153,17 @@ genrule(
     srcs = [":cub_scratch_size_lookup_table_binary"],
     outs = ["cub_scratch_size_lookup_table.binarypb.zstd"],
     cmd = "$(location :zstd_compressor) --compression_level=22 < $(location :cub_scratch_size_lookup_table_binary) > $@",
+    # copybara:uncomment compatible_with = ["//buildenv/target:non_prod"],
     tools = [":zstd_compressor"],
+)
+
+cc_embed_data(
+    name = "embed_cub_scratch_size_lookup_table",
+    srcs = [":cub_scratch_size_lookup_table_binary_zstd"],
+    outs = [
+        "embed_cub_scratch_size_lookup_table.cc",
+        "embed_cub_scratch_size_lookup_table.h",
+    ],
+    # copybara:uncomment compatible_with = ["//buildenv/target:non_prod"],
+    embedopts = ["--namespace=xla::gpu"],
 )
