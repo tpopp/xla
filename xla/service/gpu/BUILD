@@ -1946,11 +1946,7 @@ cc_library(
         "@tsl//tsl/platform:statusor",
         "@tsl//tsl/profiler/lib:scoped_annotation",
         "@tsl//tsl/profiler/lib:traceme",
-    ] + xla_internal(["service:export_hlo"]) + if_google([
-        "//xla/hlo/experimental/auto_sharding",
-        "//xla/hlo/experimental/auto_sharding:auto_sharding_option",
-        "//xla/hlo/experimental/auto_sharding:auto_sharding_stablehlo_pass",
-    ]),
+    ] + xla_internal(["service:export_hlo"]),
 )
 
 xla_test(
