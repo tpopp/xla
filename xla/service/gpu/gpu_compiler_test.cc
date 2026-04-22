@@ -769,12 +769,6 @@ TEST_P(FloatNormalizationTest, Fp8Normalization) {
   se::RocmComputeCapability rocm_cc =
       device_description().rocm_compute_capability();
 
-  // TODO(b/505079798): This case shouldn't go to Triton.
-  if (gpu_cc.IsCuda() && !cuda_cc.IsAtLeastAda() &&
-      (lhs_type == F8E4M3FN || rhs_type == F8E4M3FN)) {
-    GTEST_SKIP() << "Triton only supports conversion from/to F8E4M3FN on NVIDIA"
-                    " GPUs with compute capability >= 8.9.";
-  }
   const std::string lhs_name =
       primitive_util::LowercasePrimitiveTypeName(lhs_type);
   const std::string rhs_name =
@@ -822,7 +816,8 @@ ENTRY main {
 
   HloPrintOptions print_options =
       HloPrintOptions().set_print_operand_shape(true);
-  {
+  if (!gpu_cc.IsCuda() || cuda_cc.IsAtLeastAda() ||
+      (lhs_type != F8E4M3FN && rhs_type != F8E4M3FN)) {
     // Triton enabled, no fallback.
     ASSERT_OK_AND_ASSIGN(auto optimized_module_no_fallback_and_executable,
                          optimize_module(/*enable_triton=*/true,
