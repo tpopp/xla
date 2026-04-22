@@ -1297,18 +1297,19 @@ absl::StatusOr<ThunkSequence> ThunkEmitter::EmitTritonCustomCall(
   auto [status_or_entry, was_cached] =
       ir_emitter_context_->kernel_cache().GetWithStatus(
           instr->raw_backend_config_string(), generate);
-  TF_ASSIGN_OR_RETURN(const KernelReuseCache::Entry* entry, status_or_entry);
+  ASSIGN_OR_RETURN(const KernelReuseCache::Entry* entry,
+                   status_or_entry.Await());
 
-  TF_ASSIGN_OR_RETURN(auto kernel_arguments,
-                      emitters::KernelArguments::Create(
-                          ir_emitter_context_->buffer_assignment(),
-                          GetDefaultBufferAlignment(), instr));
+  ASSIGN_OR_RETURN(auto kernel_arguments,
+                   emitters::KernelArguments::Create(
+                       ir_emitter_context_->buffer_assignment(),
+                       GetDefaultBufferAlignment(), instr));
 
   LoadMlirDialectsForTriton(mlir_context);
   auto call =
       TritonCall::Parse(instr->raw_backend_config_string(), &mlir_context);
 
-  return GetThunkSequence(std::make_unique<KernelThunk>(
+  return ThunkSequence::Of(std::make_unique<KernelThunk>(
       Thunk::ThunkInfo::WithProfileAnnotation(
           instr, ir_emitter_context_->GetNextThunkId()),
       entry->kernel_name, kernel_arguments, entry->launch_dimensions,

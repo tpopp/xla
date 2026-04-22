@@ -211,7 +211,7 @@ class ThunkEmitter {
       const HloInstruction* hlo);
 
   absl::StatusOr<ThunkSequence> EmitTritonCustomCall(
-      const HloCustomCallInstruction* hlo);
+      const HloCustomCallInstruction* instr);
 
   AsyncThunkSequence EmitWhile(const HloInstruction* instr);
 
