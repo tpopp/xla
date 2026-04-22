@@ -702,6 +702,17 @@ cc_library(
     ],
 )
 
+xla_cc_test(
+    name = "buffer_allocations_test",
+    srcs = ["buffer_allocations_test.cc"],
+    deps = [
+        ":buffer_allocations",
+        "//xla/stream_executor:device_address",
+        "//xla/tests:xla_internal_test_main",
+        "@com_google_googletest//:gtest",
+    ],
+)
+
 bool_flag(
     name = "enable_xlir",
     build_setting_default = if_google(True, False),
