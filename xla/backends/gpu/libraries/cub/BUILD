@@ -18,6 +18,7 @@ load("//xla:xla.default.bzl", "xla_cc_test")
 load("//xla/tests:build_defs.bzl", "xla_test")
 load("//xla/tsl/platform:build_config.bzl", "tf_proto_library")
 load("//xla/tsl/platform:rules_cc.bzl", "cc_library")
+load("//xla/util:build_defs.bzl", "text_to_binary_proto")
 
 package(
     # copybara:uncomment default_applicable_licenses = ["//tensorflow:license"],
@@ -113,4 +114,34 @@ xla_test(
         "@com_google_absl//absl/status:status_matchers",
         "@com_google_googletest//:gtest_main",
     ],
+)
+
+genrule(
+    name = "combine_cub_scratch_size_textprotos",
+    srcs = glob(["data/*.textproto"]),
+    outs = ["cub_scratch_size_lookup_table.textproto"],
+    cmd = "cat /dev/null $(SRCS) > $@",
+)
+
+text_to_binary_proto(
+    name = "cub_scratch_size_lookup_table_binary",
+    src = "cub_scratch_size_lookup_table.textproto",
+    out = "cub_scratch_size_lookup_table.binarypb",
+    proto_file = ":scratch_space_lookup_table.proto",
+    proto_name = "xla.gpu.CubScratchSizeLookupTable",
+)
+
+# Copybara can't re-write the path to the OSS version inside the genrule cmd, so we need to alias it.
+alias(
+    name = "zstd_compressor",
+    actual = "//xla/tools:zstd_compressor",
+)
+
+# Compress the proto to avoid bloating the binary size.
+genrule(
+    name = "cub_scratch_size_lookup_table_binary_zstd",
+    srcs = [":cub_scratch_size_lookup_table_binary"],
+    outs = ["cub_scratch_size_lookup_table.binarypb.zstd"],
+    cmd = "$(location :zstd_compressor) --compression_level=22 < $(location :cub_scratch_size_lookup_table_binary) > $@",
+    tools = [":zstd_compressor"],
 )
