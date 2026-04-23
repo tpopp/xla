@@ -1519,10 +1519,14 @@ message DebugOptions {
   // If true, enable experimental tiling propagation.
   optional bool xla_gpu_experimental_enable_tiling_propagation = 456;
 
+  // Enables and controls expetimental cost model-driven tiling choices for GEMM
+  // fusions.
+  map<string, string> xla_gpu_experimental_cost_model_gemm_tiling_options = 474;
+
   // Note: when adding a new flag, please add it to one of the hardware-specific
   // or hardware-agnostic sections at the top of this proto message.
 
-  // Next id: 474
+  // Next id: 475
 
   // Extra options to pass to the compilation backend (e.g. LLVM); specific
   // interpretation of these values is left to the backend.

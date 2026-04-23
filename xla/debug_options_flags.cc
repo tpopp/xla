@@ -677,8 +677,7 @@ void MakeDebugOptionsFlags(std::vector<tsl::Flag>* flag_list,
       [debug_options](std::string comma_separated_values) {
         auto* extra_options_map =
             debug_options->mutable_xla_backend_extra_options();
-        parse_xla_backend_extra_options(extra_options_map,
-                                        comma_separated_values);
+        parse_comma_separated_values(extra_options_map, comma_separated_values);
         return true;
       };
 
@@ -689,7 +688,7 @@ void MakeDebugOptionsFlags(std::vector<tsl::Flag>* flag_list,
         google::protobuf::Map<std::string, std::string>* options_map =
             debug_options
                 ->mutable_xla_gpu_analytical_latency_estimator_options();
-        parse_xla_backend_extra_options(options_map, comma_separated_values);
+        parse_comma_separated_values(options_map, comma_separated_values);
         return true;
       };
 
@@ -1061,6 +1060,17 @@ void MakeDebugOptionsFlags(std::vector<tsl::Flag>* flag_list,
           (debug_options->*member_setter)(value);
           return true;
         };
+      };
+
+  // Custom "sub-parser" lambda for
+  // xla_gpu_experimental_cost_model_gemm_tiling_options.
+  auto setter_for_xla_gpu_experimental_cost_model_gemm_tiling_options =
+      [debug_options](std::string comma_separated_values) {
+        google::protobuf::Map<std::string, std::string>* options_map =
+            debug_options
+                ->mutable_xla_gpu_experimental_cost_model_gemm_tiling_options();
+        parse_comma_separated_values(options_map, comma_separated_values);
+        return true;
       };
 
   // Don't use an initializer list for initializing the vector; this would
@@ -3089,6 +3099,12 @@ void MakeDebugOptionsFlags(std::vector<tsl::Flag>* flag_list,
           debug_options->xla_gpu_command_buffer_update_mode()),
       "Controls the VA remapping update strategy for command buffer thunks. "
       "See CommandBufferUpdateMode for details."));
+  flag_list->push_back(tsl::Flag(
+      "xla_gpu_experimental_cost_model_gemm_tiling_options",
+      setter_for_xla_gpu_experimental_cost_model_gemm_tiling_options, "",
+      "Experimental options for adjusting cost-model guided GEMM tiling "
+      "selection; comma-separated list of 'key=val' strings (=val may be "
+      "omitted); no whitespace around commas."));
 }  // NOLINT(readability/fn_size)
 
 // Allocates flag_values and flag_objects; this function must not be called more
