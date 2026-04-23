@@ -130,12 +130,12 @@ class CollectiveThunk : public Thunk {
   CommunicationId communication_id() const { return communication_id_; }
   CollectivesMode collectives_mode() const { return collectives_mode_; }
 
- protected:
-  virtual absl::Status PrepareCollective(const PrepareParams& params,
-                                         const GpuCliqueKey& clique_key) {
-    return absl::OkStatus();
-  }
+  // Shorthands for checking the collectives memory mode of this thunk.
+  bool use_private_memory() const;
+  bool use_symmetric_memory() const;
+  bool use_peer_memory() const;
 
+ protected:
   // Returns true if the first call to this collective operation has to be
   // guarded with a rendezvous synchronization with other local participants
   // before and after running the collective operation itself.
@@ -144,6 +144,16 @@ class CollectiveThunk : public Thunk {
   // NCCL kernel execution races with a thunk before or after the collective
   // one that calls CUDA APIs that trigger a deadlock.
   virtual bool RequiresRendezvous() const = 0;
+
+  // Prepares collective operation for execution.
+  //
+  // At this stage it is possible to request symmetric or multicast memory for
+  // the collective buffers. Subclasses override this to request memory needed
+  // for one-sided or device-initiated collectives.
+  virtual absl::Status PrepareCollective(const PrepareParams& params,
+                                         const GpuCliqueKey& clique_key) {
+    return absl::OkStatus();
+  }
 
   // Initializes collective operation for execution.
   //

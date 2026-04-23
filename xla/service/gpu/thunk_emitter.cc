@@ -1634,7 +1634,6 @@ absl::StatusOr<ThunkSequence> ThunkEmitter::EmitCollectivePermute(
           instr, replica_count, partition_count, buffers,
           ir_emitter_context_->debug_options()
               .xla_gpu_collective_permute_mode(),
-          ir_emitter_context_->debug_options().xla_gpu_use_memcpy_local_p2p(),
           ir_emitter_context_->debug_options()
               .xla_gpu_collective_permute_connected_components()));
     }

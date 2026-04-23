@@ -347,11 +347,11 @@ message CollectivePermuteThunkProto {
   CollectiveConfigProto collective_config = 3;
   repeated SourceTarget source_target_pairs = 4;
 
-  bool p2p_memcpy_enabled = 6;
   bool connected_components_enabled = 7;
   xla.DebugOptions.CollectivesMode collectives_mode = 8;
 
   reserved 1;  // Was async_events_unique_id.
+  reserved 6;  // Was bool p2p_memcpy_enabled.
 }
 
 message SendThunkProto {
