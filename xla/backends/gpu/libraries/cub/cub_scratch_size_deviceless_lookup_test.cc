@@ -283,9 +283,9 @@ TEST(CubScratchSizeDevicelessLookupTest, CreateFailsIfRecordingsNotSorted) {
               StatusIs(absl::StatusCode::kInvalidArgument));
 }
 
-TEST(CubScratchSizeDevicelessLookupTest, CreateFromBundledDataWorks) {
-  absl::StatusOr<CubScratchSizeDevicelessLookup> lookup =
-      CubScratchSizeDevicelessLookup::CreateFromBundledData();
+TEST(CubScratchSizeDevicelessLookupTest, CanBeLoadedFromBundledData) {
+  absl::StatusOr<const CubScratchSizeDevicelessLookup&> lookup =
+      CubScratchSizeDevicelessLookup::GetInstance();
   ASSERT_OK(lookup) << lookup.status().message();
 }
 
