@@ -1579,8 +1579,8 @@ xla_test(
         "gpu",
     ],
     deps = [
+        ":hlo_pjrt_gpu_test_base",
         "//xla:error_spec",
-        "//xla/backends/gpu/tests:hlo_pjrt_gpu_test_base",
         "//xla/hlo/testlib:test",
         "//xla/tests:hlo_pjrt_interpreter_reference_mixin",
         "//xla/tests:xla_internal_test_main",
