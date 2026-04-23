@@ -857,6 +857,9 @@ message DebugOptions {
   // the heuristic.
   optional int32 xla_gpu_experimental_force_split_k = 472;
 
+  // Enable GEMM fusion v2 pass for building Triton fusions.
+  optional bool xla_gpu_experimental_gemm_fusion_v2 = 475;
+
   // Controls max unroll factor on Blackwell architectures. This is also
   // guarded with a heuristic, but the heuristic is not perfect, so changing
   // this flag can cause both performance improvements and performance
@@ -1526,7 +1529,7 @@ message DebugOptions {
   // Note: when adding a new flag, please add it to one of the hardware-specific
   // or hardware-agnostic sections at the top of this proto message.
 
-  // Next id: 475
+  // Next id: 476
 
   // Extra options to pass to the compilation backend (e.g. LLVM); specific
   // interpretation of these values is left to the backend.
