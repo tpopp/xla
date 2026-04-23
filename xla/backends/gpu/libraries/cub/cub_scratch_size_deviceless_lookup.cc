@@ -16,6 +16,7 @@ limitations under the License.
 #include "xla/backends/gpu/libraries/cub/cub_scratch_size_deviceless_lookup.h"
 
 #include <algorithm>
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <utility>
@@ -88,10 +89,24 @@ CubScratchSizeDevicelessLookup::CubScratchSizeDevicelessLookup(
     CubScratchSizeLookupTable proto)
     : proto_(std::move(proto)) {}
 
+namespace {
+absl::string_view StripMigSuffix(absl::string_view device_name) {
+  size_t mig_pos = device_name.find(" MIG");
+  if (mig_pos != absl::string_view::npos) {
+    device_name = device_name.substr(0, mig_pos);
+  }
+  return device_name;
+}
+}  // namespace
+
 const CubScratchSizeEntry* CubScratchSizeDevicelessLookup::FindEntry(
     stream_executor::SemanticVersion cub_version, absl::string_view device_name,
     int32_t key_type_size, std::optional<int32_t> value_type_size,
     bool is_segmented) const {
+  // The scratch size doesn't actually differ between MIG and non-MIG devices,
+  // so just lookup the non-MIG device name.
+  device_name = StripMigSuffix(device_name);
+
   for (const CubScratchSizeEntry& entry : proto_.entries()) {
     bool version_matched =
         std::find(entry.cub_version().begin(), entry.cub_version().end(),
