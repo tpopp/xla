@@ -214,6 +214,13 @@ std::vector<ShardingRef> MakeShardings(
       shardings.push_back(ifrt::HloSharding::Create(
           executable_devices, memory_kinds[i], (*hlo_shardings)[i]));
     }
+  } else if (executable_devices->size() == 1) {
+    // Prefer SingleDeviceSharding over ConcreteEvenSharding, as it supports
+    // more APIs, like IndexDomains().
+    for (int i = 0; i < memory_kinds.size(); ++i) {
+      shardings.push_back(ifrt::SingleDeviceSharding::Create(
+          executable_devices->devices()[0], memory_kinds[i]));
+    }
   } else {
     // Assume a traditional replication computation where tile shapes are the
     // same as global shapes.
@@ -224,7 +231,7 @@ std::vector<ShardingRef> MakeShardings(
           executable_devices, memory_kinds[i],
           /*shape=*/shapes[i],
           /*shard_shape=*/shapes[i],
-          /*is_fully_replicated=*/executable_devices->size() == 1));
+          /*is_fully_replicated=*/false));
     }
   }
   return shardings;
