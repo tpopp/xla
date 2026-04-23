@@ -636,7 +636,6 @@ PjRtCpuClient::CompileAndAssignDevices(MaybeOwningMlirModule module,
   int module_id = HloModule::GetNextUniqueModuleId();
   TF_RETURN_IF_ERROR(pjrt::MaybeDumpCompileInputs(options, module.mlir_module(),
                                                   *topology_, module_id));
-
   XlaComputation xla_computation;
   ExecutableBuildOptions& exec_build_options = options.executable_build_options;
   TF_RETURN_IF_ERROR(MlirToXlaComputation(
