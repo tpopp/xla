@@ -1847,10 +1847,8 @@ void MakeDebugOptionsFlags(std::vector<tsl::Flag>* flag_list,
       debug_options->xla_gpu_enable_cudnn_layer_norm(),
       "Rewrite layer norm patterns into cuDNN library call."));
   flag_list->push_back(
-      tsl::Flag("xla_gpu_enable_cublaslt",
-                bool_setter_for(&DebugOptions::set_xla_gpu_enable_cublaslt),
-                debug_options->xla_gpu_enable_cublaslt(),
-                "Use cuBLASLt for GEMMs when possible."));
+      tsl::Flag("xla_gpu_enable_cublaslt", noop_flag_setter<bool>, false,
+                "[Deprecated] Use cuBLASLt for GEMMs when possible."));
   flag_list->push_back(tsl::Flag(
       "xla_gpu_enable_command_buffer",
       SetterForRepeatedEnum<DebugOptions::CommandBufferCmdType>(
