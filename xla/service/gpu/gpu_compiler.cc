@@ -3458,8 +3458,7 @@ absl::Status GpuCompiler::AddFusionAutotuningPass(
       &debug_options, this, target_config);
   backends.push_back(std::move(native_backend));
   auto ble_backend = std::make_unique<BlockLevelEmitterBackend>(
-      &debug_options, this, shape_size_fn, target_config,
-      /*use_default_config=*/true);
+      &debug_options, this, shape_size_fn, target_config);
   backends.push_back(std::move(ble_backend));
 
   auto should_autotune =
