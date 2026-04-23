@@ -4021,6 +4021,8 @@ xla_cc_test(
         ":host_execute_thunk",
         ":host_send_recv_thunk",
         ":host_to_device_copy_thunk",
+        ":recv_thunk",
+        ":send_thunk",
         ":sequential_thunk",
         ":thunk",
         ":thunk_proto_cc",
