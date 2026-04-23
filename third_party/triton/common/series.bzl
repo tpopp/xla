@@ -36,5 +36,6 @@ common_patch_list = [
     "//third_party/triton:common/llvm_cl900404532.patch",
     "//third_party/triton:common/cherry-pick-f43dff6f.patch",
     "//third_party/triton:common/llvm_cl902211192.patch",
+    "//third_party/triton:common/silence_matchAndRewrite_failures.patch",
     # Add new patches just above this line
 ]
