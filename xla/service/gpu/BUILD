@@ -1886,6 +1886,7 @@ cc_library(
         "//xla/service/gpu/model:gpu_hlo_cost_analysis",
         "//xla/service/gpu/model:matmul_ptable_stats_collection",
         "//xla/service/gpu/model:sol_gpu_cost_model_stats_collection",
+        "//xla/service/llvm_ir:error_handler",
         "//xla/service/llvm_ir:llvm_command_line_options",
         "//xla/service/llvm_ir:llvm_util",
         "//xla/service/spmd:collective_permute_motion",
