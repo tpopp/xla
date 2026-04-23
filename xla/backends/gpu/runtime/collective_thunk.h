@@ -45,6 +45,7 @@ limitations under the License.
 #include "xla/shape.h"
 #include "xla/stream_executor/device_address.h"
 #include "xla/stream_executor/stream.h"
+#include "xla/xla.pb.h"
 #include "xla/xla_data.pb.h"
 
 namespace xla::gpu {
@@ -101,8 +102,11 @@ class CollectiveThunk : public Thunk {
         absl::Span<const BufferAllocation> buffer_allocations);
   };
 
+  using CollectivesMode = DebugOptions::CollectivesMode;
   CollectiveThunk(Kind kind, ThunkInfo thunk_info, std::vector<Buffer> buffers,
-                  CommunicationId communication_id = CommunicationId(0));
+                  CommunicationId communication_id = CommunicationId(0),
+                  CollectivesMode collectives_mode =
+                      DebugOptions::COLLECTIVES_PRIVATE_MEMORY);
 
   // Logging support.
   static std::string GetDeviceString(const CollectiveParams& params);
@@ -124,6 +128,7 @@ class CollectiveThunk : public Thunk {
   BufferUses buffer_uses() const override;
 
   CommunicationId communication_id() const { return communication_id_; }
+  CollectivesMode collectives_mode() const { return collectives_mode_; }
 
  protected:
   virtual absl::Status PrepareCollective(const PrepareParams& params,
@@ -181,6 +186,7 @@ class CollectiveThunk : public Thunk {
   RendezvousFlag post_call_rendezvous_flag_;
 
   CommunicationId communication_id_;
+  CollectivesMode collectives_mode_;
 
   // Device assignment is owned by PjRtExecutable and never changes between
   // thunk executions, and replica groups are baked into the thunk at compile

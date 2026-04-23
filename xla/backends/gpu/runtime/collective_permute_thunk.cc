@@ -93,10 +93,10 @@ static absl::Status RunP2PMemcpy(
 CollectivePermuteThunk::CollectivePermuteThunk(
     ThunkInfo thunk_info, const HloCollectivePermuteInstruction* instr,
     int64_t replica_count, int64_t partition_count,
-    const std::vector<Buffer>& buffers, bool p2p_memcpy_enabled,
-    bool connected_components_enabled)
+    const std::vector<Buffer>& buffers, CollectivesMode collectives_mode,
+    bool p2p_memcpy_enabled, bool connected_components_enabled)
     : CollectiveThunk(Thunk::kCollectivePermute, std::move(thunk_info), buffers,
-                      CommunicationId(1)),
+                      CommunicationId(1), collectives_mode),
       config_(GetP2PConfig(instr, replica_count, partition_count,
                            connected_components_enabled)),
       p2p_memcpy_enabled_(p2p_memcpy_enabled),
@@ -104,10 +104,10 @@ CollectivePermuteThunk::CollectivePermuteThunk(
 
 CollectivePermuteThunk::CollectivePermuteThunk(
     ThunkInfo thunk_info, const P2PConfig& config,
-    const std::vector<Buffer>& buffers, bool p2p_memcpy_enabled,
-    bool connected_components_enabled)
+    const std::vector<Buffer>& buffers, CollectivesMode collectives_mode,
+    bool p2p_memcpy_enabled, bool connected_components_enabled)
     : CollectiveThunk(Thunk::kCollectivePermute, std::move(thunk_info), buffers,
-                      CommunicationId(1)),
+                      CommunicationId(1), collectives_mode),
       config_(config),
       p2p_memcpy_enabled_(p2p_memcpy_enabled),
       connected_components_enabled_(connected_components_enabled) {}
@@ -265,7 +265,8 @@ CollectivePermuteThunk::FromProto(
 
   return std::make_unique<CollectivePermuteThunk>(
       std::move(thunk_info), P2PConfig{config, std::move(id_to_source_target)},
-      std::move(buffers), thunk_proto.p2p_memcpy_enabled(),
+      std::move(buffers), thunk_proto.collectives_mode(),
+      thunk_proto.p2p_memcpy_enabled(),
       thunk_proto.connected_components_enabled());
 }
 

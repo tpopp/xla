@@ -58,6 +58,7 @@ tf_proto_library(
     deps = [
         "//xla:autotuning_proto",
         "//xla:xla_data_proto",
+        "//xla:xla_proto",
         "//xla/tsl/protobuf:dnn_proto",
     ],
 )

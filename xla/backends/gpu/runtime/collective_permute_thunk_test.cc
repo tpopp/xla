@@ -139,6 +139,7 @@ ENTRY test_computation {
   auto cp_start_thunk = std::make_unique<CollectivePermuteThunk>(
       Thunk::ThunkInfo{}, cp_instr, /*replica_count=*/2,
       /*partition_count=*/1, std::move(buffers),
+      /*collectives_mode=*/DebugOptions::COLLECTIVES_PRIVATE_MEMORY,
       /*p2p_memcpy_enabled=*/false,
       /*connected_components_enabled=*/false);
 
