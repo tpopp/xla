@@ -1395,10 +1395,6 @@ cc_library(
 tf_proto_library(
     name = "kernel_reuse_cache_proto",
     srcs = ["kernel_reuse_cache.proto"],
-    deps = [
-        "//xla:xla_proto",
-        "//xla/service:hlo_proto",
-    ],
 )
 
 cc_library(
@@ -3376,6 +3372,7 @@ cc_library(
         "//xla/stream_executor:launch_dim",
         "//xla/stream_executor/gpu:tma_metadata",
         "//xla/tsl/concurrency:future",
+        "//xla/tsl/platform:status_macros",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/container:flat_hash_set",
