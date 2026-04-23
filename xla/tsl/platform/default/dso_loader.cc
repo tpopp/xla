@@ -51,7 +51,6 @@ absl::string_view GetNcclVersion() { return TF_NCCL_VERSION; }
 absl::string_view GetTensorRTVersion() { return TF_TENSORRT_VERSION; }
 absl::string_view GetNvshmemVersion() { return XLA_NVSHMEM_VERSION; }
 
-
 absl::StatusOr<void*> GetDsoHandle(const std::string& name,
                                    absl::string_view version) {
   auto filename =
@@ -93,6 +92,10 @@ absl::StatusOr<void*> GetCudaDriverDsoHandle() {
 
 absl::StatusOr<void*> GetNvmlDsoHandle() {
   return GetDsoHandle("nvidia-ml", "1");
+}
+
+absl::StatusOr<void*> GetNvrtcDsoHandle() {
+  return GetDsoHandle("nvrtc", GetCudaRtVersion());
 }
 
 absl::StatusOr<void*> GetCudaRuntimeDsoHandle() {
