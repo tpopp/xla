@@ -78,7 +78,7 @@ bool IsAsync(const HloInstruction* inst) {
 class CollectiveOpsTestE2E : public CollectiveOpsE2ETestBase {
  public:
   explicit CollectiveOpsTestE2E(size_t memory_size = 128 * kMB,
-                                size_t collectives_memory_size = 0)
+                                size_t collectives_memory_size = 128 * kMB)
       : CollectiveOpsE2ETestBase(memory_size, collectives_memory_size) {}
 
   bool HasFp8Support() {
@@ -204,7 +204,7 @@ class CollectivesModeOps
   CollectivesModeOps()
       : CollectiveOpsE2ETestBase(
             /*memory_size=*/32 * kMB,
-            /*collectives_memory_size=*/RequiresCollectiveMemory() ? 1 * kMB
+            /*collectives_memory_size=*/RequiresCollectiveMemory() ? 32 * kMB
                                                                    : 0),
         enable_async_(std::get<0>(GetParam())),
         collectives_mode_(std::get<1>(GetParam())) {}
