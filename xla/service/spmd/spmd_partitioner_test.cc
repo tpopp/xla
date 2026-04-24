@@ -3005,7 +3005,7 @@ ENTRY entry {
   EXPECT_THAT(root, AllOf(rotate, op::Shape("f32[3]")));
 }
 
-TEST_P(SpmdPartitioningTest,
+TEST_P(SpmdPartitioningAllShardingTest,
        MergedSliceThenConcatRotateRightWithAlignedPadding) {
   absl::string_view hlo_string = R"(
 HloModule module
@@ -3027,7 +3027,7 @@ ENTRY entry {
   EXPECT_THAT(root, op::CollectivePermute(param0));
 }
 
-TEST_P(SpmdPartitioningTest,
+TEST_P(SpmdPartitioningAllShardingTest,
        MergedSliceThenConcatRotateRightWithUnalignedPadding) {
   absl::string_view hlo_string = R"(
 HloModule module
@@ -15451,6 +15451,7 @@ ENTRY entry {
   EXPECT_THAT(root, AllOf(op::Gather(), op::Shape("f32[16,16,6,128,128]")));
 }
 
+// TODO(b/498118846): Enable this test for v3 once the bug is fixed.
 TEST_P(SpmdPartitioningTest, ComplexReshardFromPartialReplicate) {
   const char* const hlo_string = R"(
 HloModule module
@@ -15473,6 +15474,7 @@ ENTRY entry {
       op::Copy(op::Reshape(op::Reshape(op::Transpose(op::AllToAll(_))))));
 }
 
+// TODO(b/498118846): Enable this test for v3 once the bug is fixed.
 TEST_P(SpmdPartitioningTest, ComplexReshardToPartialReplicate) {
   const char* const hlo_string = R"(
 HloModule module
@@ -15996,6 +15998,7 @@ ENTRY %main.21 {
             nullptr);
 }
 
+// TODO(b/498118846): Re-enable this test once the bug is fixed.
 TEST_P(SpmdPartitioningTest, ComplexReshardPartialMerging) {
   const char* const hlo_string = R"(
 HloModule pjit
@@ -17545,6 +17548,38 @@ ENTRY entry {
   EXPECT_EQ(all_gather->device_list()->version(), expected_version);
 }
 
+TEST_P(SpmdPartitioningTest, ConcatenateSmallDimReplication) {
+  absl::string_view hlo_string = R"(
+HloModule module
+
+ENTRY %module {
+  %parameter.0 = f32[20,128,128] parameter(0), sharding={devices=[1,4,4]0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15}
+  %slice.1 = f32[1,120,120] slice(%parameter.0), slice={[8:9], [8:128], [8:128]}, sharding={devices=[1,4,4]0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15}
+  %slice.2 = f32[4,120,120] slice(%parameter.0), slice={[8:12], [8:128], [8:128]}, sharding={devices=[1,4,4]0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15}
+  %slice.3 = f32[1,120,120] slice(%parameter.0), slice={[11:12], [8:128], [8:128]}, sharding={devices=[1,4,4]0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15}
+  %concatenate = f32[6,120,120] concatenate(%slice.1, %slice.2, %slice.3), dimensions={0}, sharding={devices=[1,4,4]0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15}
+  %c7 = s32[] constant(7)
+  %c8 = s32[] constant(8)
+  ROOT %dus = f32[20,128,128] dynamic-update-slice(%parameter.0, %concatenate, %c7, %c8, %c8), sharding={devices=[1,4,4]0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15}
+})";
+  TF_ASSERT_OK_AND_ASSIGN(auto module,
+                          PartitionComputation(hlo_string, /*num_devices=*/16,
+                                               SpmdPartitionerOptions(),
+                                               /*enable_enzyme_opt=*/true));
+
+  bool has_collective = false;
+  for (auto* comp : module->computations()) {
+    for (auto* inst : comp->instructions()) {
+      if (inst->opcode() == HloOpcode::kAllGather ||
+          inst->opcode() == HloOpcode::kAllReduce ||
+          inst->opcode() == HloOpcode::kCollectivePermute) {
+        has_collective = true;
+      }
+    }
+  }
+  EXPECT_FALSE(has_collective) << "PARTITIONED MODULE:\n" << module->ToString();
+}
+
 TEST_P(SpmdPartitioningAllShardingTest,
        V3ShardingGeneratesRGV3NamedAxisConflict) {
   if (GetParam() == ShardingFormatPicker::ShardingType::kV1) {
@@ -17728,36 +17763,24 @@ ENTRY entry {
                   "{mesh['x'=2,'y'=2] [{?},{'x'}], unreduced={'y'}}")));
 }
 
-TEST_P(SpmdPartitioningTest, ConcatenateSmallDimReplication) {
+TEST_F(SpmdPartitioningV3Test, PatternMatchMergeNamedSharding) {
   absl::string_view hlo_string = R"(
 HloModule module
 
-ENTRY %module {
-  %parameter.0 = f32[20,128,128] parameter(0), sharding={devices=[1,4,4]0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15}
-  %slice.1 = f32[1,120,120] slice(%parameter.0), slice={[8:9], [8:128], [8:128]}, sharding={devices=[1,4,4]0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15}
-  %slice.2 = f32[4,120,120] slice(%parameter.0), slice={[8:12], [8:128], [8:128]}, sharding={devices=[1,4,4]0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15}
-  %slice.3 = f32[1,120,120] slice(%parameter.0), slice={[11:12], [8:128], [8:128]}, sharding={devices=[1,4,4]0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15}
-  %concatenate = f32[6,120,120] concatenate(%slice.1, %slice.2, %slice.3), dimensions={0}, sharding={devices=[1,4,4]0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15}
-  %c7 = s32[] constant(7)
-  %c8 = s32[] constant(8)
-  ROOT %dus = f32[20,128,128] dynamic-update-slice(%parameter.0, %concatenate, %c7, %c8, %c8), sharding={devices=[1,4,4]0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15}
+ENTRY entry {
+  %param= f32[16,16]{1,0} parameter(0), sharding={mesh['a'=2, 'b'=2], [{'a'}, {'b'}]}
+  ROOT %copy = f32[16,16]{1,0} copy(%param), sharding={mesh['a'=2, 'b'=2], [{'a', 'b'}, {}]}
 })";
   TF_ASSERT_OK_AND_ASSIGN(auto module,
-                          PartitionComputation(hlo_string, /*num_devices=*/16,
-                                               SpmdPartitionerOptions(),
-                                               /*enable_enzyme_opt=*/true));
+                          PartitionComputation(hlo_string, /*num_devices=*/4));
 
-  bool has_collective = false;
-  for (auto* comp : module->computations()) {
-    for (auto* inst : comp->instructions()) {
-      if (inst->opcode() == HloOpcode::kAllGather ||
-          inst->opcode() == HloOpcode::kAllReduce ||
-          inst->opcode() == HloOpcode::kCollectivePermute) {
-        has_collective = true;
-      }
-    }
-  }
-  EXPECT_FALSE(has_collective) << "PARTITIONED MODULE:\n" << module->ToString();
+  HloInstruction* root = module->entry_computation()->root_instruction();
+
+  // We expect TryComplexReshardHandling to be called.
+  EXPECT_THAT(root,
+              AllOf(op::Copy(op::Reshape(op::Reshape(op::Transpose(op::AllToAll(
+                        op::Reshape(op::Reshape(op::Parameter()))))))),
+                    op::Shape("f32[4,16]")));
 }
 
 // TODO(b/493211767): parameterise the dynamic slice v2 tests once reshard

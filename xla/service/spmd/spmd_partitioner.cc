@@ -2029,11 +2029,21 @@ PatternMatchMergeOrSplitSharding(const Shape& base_shape,
   if (source.TiledDataRank() != target.TiledDataRank()) {
     return std::nullopt;
   }
-  if ((source.HasPartialReplication() ^ target.HasPartialReplication()) ||
-      (source.HasPartialReplication() &&
-       source.dimensions()[source.TiledDataRank()] !=
-           target.dimensions()[target.TiledDataRank()])) {
+  if (source.HasPartialReplication() ^ target.HasPartialReplication()) {
     return std::nullopt;
+  }
+  if (source.HasPartialReplication()) {
+    auto get_repl_factor = [](const HloSharding& s) {
+      if (s.UseNamedShardingLeaf()) {
+        int64_t sharded_dims_product =
+            absl::c_accumulate(s.dimensions(), 1LL, std::multiplies<int64_t>());
+        return s.num_devices() / sharded_dims_product;
+      }
+      return s.dimensions()[s.TiledDataRank()];
+    };
+    if (get_repl_factor(source) != get_repl_factor(target)) {
+      return std::nullopt;
+    }
   }
 
   // Collect dimension indices with different tile assignment sizes.
@@ -2061,7 +2071,6 @@ PatternMatchMergeOrSplitSharding(const Shape& base_shape,
     diff_index_2.push_back(i);
   }
 
-  // Iterate combination of diff_index_1 and diff_index_2.
   for (int64_t i : diff_index_2) {
     for (int64_t j : diff_index_1) {
       if (source.dimension(i) * source.dimension(j) !=
