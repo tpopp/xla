@@ -582,6 +582,7 @@ cc_library(
         "gpu",
     ],
     deps = [
+        ":cublas",
         ":cublaslt",
         ":cudnn",
         ":factory",
@@ -787,6 +788,7 @@ cc_library(
         ":fission_backend",
         ":hipblaslt",
         ":miopen",
+        ":rocblas",
         ":triton",
         "//xla:xla_proto_cc",
         "//xla/backends/autotuner:backends_proto_cc",

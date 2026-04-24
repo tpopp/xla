@@ -502,6 +502,25 @@ absl::StatusOr<GpuTopology> InferGpuTopology(
 
 }  // namespace
 
+std::unique_ptr<HloPassPipeline> GpuCompiler::GetCublasRewriterPipeline(
+    const stream_executor::DeviceDescription& device_description,
+    bool enable_cublaslt) {
+  auto pipeline = std::make_unique<HloPassPipeline>("cublas_rewriter_pipeline");
+  pipeline->AddPass(std::make_unique<DotAlgorithmRewriter>());
+  pipeline->AddPass(std::make_unique<ScaledDotRewriter>());
+  for (GemmRewriterOptions::DType dtype :
+       {GemmRewriterOptions::DType::kFp8Only,
+        GemmRewriterOptions::DType::kNonFp8Only}) {
+    GemmRewriterOptions options{dtype};
+    options.enable_cublaslt = enable_cublaslt;
+    auto gemm_rewriter = std::make_unique<GemmRewriter>(
+        device_description.gpu_compute_capability(),
+        device_description.runtime_version(), options);
+    pipeline->AddPass(std::move(gemm_rewriter));
+  }
+  return pipeline;
+}
+
 GpuCompiler::GpuCompiler(se::Platform::Id platform_id,
                          const char* target_triple, const char* data_layout)
     : platform_id_(platform_id),
@@ -1760,10 +1779,12 @@ void AddGemmRewriterPasses(HloPassPipeline& pipeline,
 
   GemmRewriterOptions fp8_options{GemmRewriterOptions::DType::kFp8Only,
                                   bias_mode};
+  fp8_options.enable_cublaslt = true;
   pipeline.AddPass<GemmRewriter>(gpu_version, toolkit_version, fp8_options);
   pipeline.AddPass<GemmRewriter>(
       gpu_version, toolkit_version,
-      GemmRewriterOptions{GemmRewriterOptions::DType::kNonFp8Only, bias_mode});
+      GemmRewriterOptions{GemmRewriterOptions::DType::kNonFp8Only, bias_mode,
+                          debug_options.xla_gpu_enable_cublaslt()});
 }
 }  // namespace
 
@@ -3288,7 +3309,7 @@ absl::Status GpuCompiler::AddConvAndGemmAutotuningPass(
                              const HloInstruction& instruction) -> bool {
     if (!do_not_autotune_cublas &&
         (instruction.opcode() == HloOpcode::kCustomCall &&
-         IsCublasGemm(instruction) && !IsLegacyCublasMatmul(instruction))) {
+         IsCublasGemm(instruction))) {
       return true;
     }
     if (!do_not_autotune_cudnn &&
@@ -3359,9 +3380,18 @@ GpuCompiler::GetAutotunerBackends(
     disabled_autotune_backends.push_back(autotuner::Backend::HIPBLASLT_FISSION);
   }
 
-  // Legacy cublas is being removed, and we assume cublasLt is always enabled.
-  disabled_autotune_backends.push_back(autotuner::Backend::CUBLAS_FISSION);
-  disabled_autotune_backends.push_back(autotuner::Backend::ROCBLAS_FISSION);
+  if (!debug_options.xla_gpu_enable_cublaslt()) {
+    disabled_autotune_backends.push_back(autotuner::Backend::CUBLASLT);
+    disabled_autotune_backends.push_back(autotuner::Backend::CUBLASLT_FISSION);
+    // NOTE(ROCm): Do not disable hipblaslt backends even with
+    // xla_gpu_enable_cublaslt=false since we need them for fp8
+  } else {
+    // Breaks xla/backends/gpu/transforms:gemm_rewriter_test_b200, it requires
+    // CUBLAS and CUBLASLT both to be available. TODO: fix tests and uncomment.
+    // disabled_autotune_backends.push_back(autotuner::Backend::CUBLAS);
+    disabled_autotune_backends.push_back(autotuner::Backend::CUBLAS_FISSION);
+    disabled_autotune_backends.push_back(autotuner::Backend::ROCBLAS_FISSION);
+  }
 
   autotune_backends.erase(
       std::remove_if(autotune_backends.begin(), autotune_backends.end(),
