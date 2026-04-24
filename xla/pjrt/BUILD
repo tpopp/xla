@@ -1435,6 +1435,7 @@ cc_library(
 
 cc_library(
     name = "device_event",
+    srcs = ["device_event.cc"],
     hdrs = ["device_event.h"],
     visibility = internal_visibility([":friends"]),
     deps = [
