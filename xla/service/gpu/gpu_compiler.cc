@@ -38,6 +38,7 @@ limitations under the License.
 #include "absl/strings/str_format.h"
 #include "absl/strings/string_view.h"
 #include "absl/synchronization/blocking_counter.h"
+#include "absl/synchronization/mutex.h"
 #include "xla/tsl/platform/status_macros.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/AsmParser/Parser.h"
@@ -2301,6 +2302,11 @@ GpuCompiler::CompileSingleModule(
   }
 
   CallUserPostOptimizationHook(*llvm_module);
+
+  absl::MutexLock lock(user_asm_hook_m_);
+  if (user_asm_hook_ && !result.asm_text.empty()) {
+    user_asm_hook_(result.asm_text);
+  }
 
   return result;
 }
