@@ -1,5 +1,9 @@
 # PJRT C API changelog
 
+## 0.105
+
+* Added PJRT_Memory_FunctionTable*.
+
 ## 0.104
 
 * Added `total_allocation_bytes`, `indefinite_allocations` and `peak_unpadded_heap_bytes` to GetCompiledMemoryStats
