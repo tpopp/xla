@@ -1558,7 +1558,7 @@ e {
 
 // TODO(b/393299275): this should just be a fusion test and does not need to be
 // in the codegen directory.
-TEST_F(TritonGemmTest, SineOutputIsNotFused) {
+TEST_F(TritonGemmTest, SineOutputIsFused) {
   constexpr absl::string_view kHloText = R"(
 HloModule m
 
@@ -1575,10 +1575,8 @@ ENTRY e {
                           GetOptimizedModule(kHloText));
   EXPECT_THAT(
       module->entry_computation()->root_instruction(),
-      GmockMatch(
-          m::Fusion(m::Fusion(m::Parameter(), m::Parameter())
-                        .WithFusionKind(HloInstruction::FusionKind::kCustom))
-              .WithFusionKind(HloInstruction::FusionKind::kLoop)));
+      GmockMatch(m::Fusion(m::Parameter(), m::Parameter())
+                     .WithFusionKind(HloInstruction::FusionKind::kCustom)));
 }
 
 // TODO(b/393299275): this should just be a fusion test and does not need to be

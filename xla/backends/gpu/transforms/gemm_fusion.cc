@@ -590,9 +590,6 @@ HlosAndRequirements FuseTowardUsers(
     return existing_hlos_and_requirements;
   }
   const HloInstruction& user = *hlo.users()[0];
-  if (!legacy_triton::IsDistributiveOverAddition(user)) {
-    return existing_hlos_and_requirements;
-  }
 
   // Get the dim orders for the user.
   auto opt_user_result = GetUserDimOrdersAndCombinedReqsIfProfitable(
