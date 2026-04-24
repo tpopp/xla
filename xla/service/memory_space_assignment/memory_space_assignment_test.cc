@@ -5510,7 +5510,7 @@ TEST_F(MemorySpaceAssignmentTest, MemoryBoundednessBufferIntervalCompare) {
   EXPECT_THAT(tanh4, op::ShapeWithLayout(shape_in_default_mem));
 }
 
-TEST_F(MemorySpaceAssignmentTest, ColorOutputInAlternateMemory) {
+TEST_F(MemorySpaceAssignmentTest, TestColorOutputInAlternateMemory) {
   absl::string_view hlo_string = R"hlo(
 HloModule module, is_scheduled=true
 
@@ -17125,8 +17125,8 @@ ENTRY entry {
       };
   HloPosition negate0_position{FindInstruction(module.get(), "negate0"), {}};
   HloPosition negate4_position{FindInstruction(module.get(), "negate4"), {}};
-  memory_space_options.max_retries = 1;
-  memory_space_options.max_repacks = 1;
+  memory_space_options.max_retries = 2;
+  memory_space_options.max_repacks = 2;
   memory_space_options.buffer_colorings = {
       {negate0_position, kAlternateMemorySpace},
       {negate4_position, kAlternateMemorySpace}};
@@ -17175,6 +17175,149 @@ ENTRY entry {
   XLA_VLOG_LINES(1, "After MSA: \n" + module->ToString());
   CheckMemorySpaceForInstructionNames(
       module.get(), {"negate0", "negate4", "negate3"}, kAlternateMemorySpace);
+}
+
+TEST_F(MemorySpaceAssignmentTest,
+       TestColoringWithContiguouslyAllocatedBuffers) {
+  // * All the custom calls alias with each other. The buffer live ranges starts
+  //   at custom_call0 and ends at the last use of custom_call3 at negate8.
+  // * All the custom call buffers require contiguous allocation.
+  // * Coloring the buffer at one instruction site at negate5 (use of
+  //   custom_call2) puts the entire live range of the buffer in alternate
+  //   memory space.
+  absl::string_view hlo_string = R"hlo(
+HloModule module, is_scheduled=true
+
+ENTRY entry {
+  param0 = f32[2,1,3]{2,1,0} parameter(0), sharding={replicated}
+  negate0 = f32[2,1,3]{2,1,0} negate(param0)
+  custom_call0 = f32[2,1,3]{2,1,0} custom-call(negate0), custom_call_target="tpu_custom_call"
+  negate1 = f32[2,1,3]{2,1,0} negate(custom_call0)
+  negate2 = f32[2,1,3]{2,1,0} negate(negate1)
+  custom_call1 = f32[2,1,3]{2,1,0} custom-call(custom_call0, negate2), custom_call_target="tpu_custom_call", output_to_operand_aliasing={{}: (0, {})}
+  negate3 = f32[2,1,3]{2,1,0} negate(custom_call1)
+  negate4 = f32[2,1,3]{2,1,0} negate(negate3)
+  custom_call2 = f32[2,1,3]{2,1,0} custom-call(custom_call1, negate4), custom_call_target="tpu_custom_call", output_to_operand_aliasing={{}: (0, {})}
+  negate5 = f32[2,1,3]{2,1,0} negate(custom_call2)
+  negate6 = f32[2,1,3]{2,1,0} negate(negate5)
+  custom_call3 = f32[2,1,3]{2,1,0} custom-call(custom_call2, negate6), custom_call_target="tpu_custom_call", output_to_operand_aliasing={{}: (0, {})}
+  negate7 = f32[2,1,3]{2,1,0} negate(negate6)
+  negate8 = f32[2,1,3]{2,1,0} negate(custom_call3)
+  ROOT add0 = f32[2,1,3]{2,1,0} add(negate7, negate8)
+})hlo";
+
+  TF_ASSERT_OK_AND_ASSIGN(std::unique_ptr<VerifiedHloModule> module,
+                          ParseAndReturnVerifiedModule(hlo_string));
+  Options memory_space_options = DefaultMemorySpaceOptions();
+  memory_space_options.max_size_in_bytes = 48;
+  memory_space_options.verify = true;
+  memory_space_options.position_requires_contiguous_allocation_fn =
+      [](const HloPosition& position) {
+        return position.instruction->opcode() == HloOpcode::kCustomCall;
+      };
+  HloUse negate5_use_of_custom_call2{
+      FindInstruction(module.get(), "negate5"), 0, {}};
+  memory_space_options.buffer_colorings = {
+      {negate5_use_of_custom_call2, kAlternateMemorySpace},
+  };
+  MsaBufferIntervalCompare buffer_interval_compare =
+      [](const MsaBufferInterval& lhs, const MsaBufferInterval& rhs) {
+        auto lookup = [](const MsaBufferInterval& x) {
+          int priority = 100;
+          if (x.buffer->instruction()->name() == "negate4") {
+            priority = 1;
+          }
+          return std::make_tuple(priority, x.buffer->instruction()->name());
+        };
+        return lookup(lhs) < lookup(rhs);
+      };
+  InstructionCountPrefetchIntervalPicker prefetch_interval_picker(0, 100);
+  XLA_VLOG_LINES(1, "Before MSA: \n" + module->ToString());
+  AssignMemorySpace(module.get(), std::move(memory_space_options),
+                    buffer_interval_compare, &prefetch_interval_picker);
+  XLA_VLOG_LINES(1, "After MSA: \n" + module->ToString());
+  CheckMemorySpaceForInstructionNames(
+      module.get(),
+      {"custom_call0", "custom_call1", "custom_call2", "custom_call3"},
+      kAlternateMemorySpace);
+  CheckOperandOpcodeAndMemorySpaceForInstructionNames(
+      module.get(),
+      {"negate1", "negate3", "negate5", "negate8", "custom_call1",
+       "custom_call2", "custom_call3"},
+      /*operand_number=*/0, /*operand_memory_space=*/kAlternateMemorySpace,
+      HloOpcode::kCustomCall);
+}
+
+TEST_F(MemorySpaceAssignmentTest, TestColoringWithContiguousBuffersExtended) {
+  // * All the custom calls alias with each other and with negate0. The buffer
+  //   live ranges starts at negate0 and ends at the last use of custom_call3 at
+  //   negate8.
+  // * Only the custom call buffers require contiguous allocation (negate0 does
+  //   not require contiguous allocation).
+  // * Coloring the buffer at one instruction site at negate5 (use of
+  //   custom_call2) puts the entire live range of the buffer in alternate
+  //   memory space.
+  absl::string_view hlo_string = R"hlo(
+HloModule module, is_scheduled=true
+
+ENTRY entry {
+  param0 = f32[2,1,3]{2,1,0} parameter(0), sharding={replicated}
+  negate0 = f32[2,1,3]{2,1,0} negate(param0)
+  custom_call0 = f32[2,1,3]{2,1,0} custom-call(negate0), custom_call_target="tpu_custom_call", output_to_operand_aliasing={{}: (0, {})}
+  negate1 = f32[2,1,3]{2,1,0} negate(custom_call0)
+  negate2 = f32[2,1,3]{2,1,0} negate(negate1)
+  custom_call1 = f32[2,1,3]{2,1,0} custom-call(custom_call0, negate2), custom_call_target="tpu_custom_call", output_to_operand_aliasing={{}: (0, {})}
+  negate3 = f32[2,1,3]{2,1,0} negate(custom_call1)
+  negate4 = f32[2,1,3]{2,1,0} negate(negate3)
+  custom_call2 = f32[2,1,3]{2,1,0} custom-call(custom_call1, negate4), custom_call_target="tpu_custom_call", output_to_operand_aliasing={{}: (0, {})}
+  negate5 = f32[2,1,3]{2,1,0} negate(custom_call2)
+  negate6 = f32[2,1,3]{2,1,0} negate(negate5)
+  custom_call3 = f32[2,1,3]{2,1,0} custom-call(custom_call2, negate6), custom_call_target="tpu_custom_call", output_to_operand_aliasing={{}: (0, {})}
+  negate7 = f32[2,1,3]{2,1,0} negate(negate6)
+  negate8 = f32[2,1,3]{2,1,0} negate(custom_call3)
+  ROOT add0 = f32[2,1,3]{2,1,0} add(negate7, negate8)
+})hlo";
+
+  TF_ASSERT_OK_AND_ASSIGN(std::unique_ptr<VerifiedHloModule> module,
+                          ParseAndReturnVerifiedModule(hlo_string));
+  Options memory_space_options = DefaultMemorySpaceOptions();
+  memory_space_options.max_size_in_bytes = 48;
+  memory_space_options.verify = true;
+  memory_space_options.position_requires_contiguous_allocation_fn =
+      [](const HloPosition& position) {
+        return position.instruction->opcode() == HloOpcode::kCustomCall;
+      };
+  HloUse negate5_use_of_custom_call2{
+      FindInstruction(module.get(), "negate5"), 0, {}};
+  memory_space_options.buffer_colorings = {
+      {negate5_use_of_custom_call2, kAlternateMemorySpace},
+  };
+  MsaBufferIntervalCompare buffer_interval_compare =
+      [](const MsaBufferInterval& lhs, const MsaBufferInterval& rhs) {
+        auto lookup = [](const MsaBufferInterval& x) {
+          int priority = 100;
+          if (x.buffer->instruction()->name() == "negate4") {
+            priority = 1;
+          }
+          return std::make_tuple(priority, x.buffer->instruction()->name());
+        };
+        return lookup(lhs) < lookup(rhs);
+      };
+  InstructionCountPrefetchIntervalPicker prefetch_interval_picker(0, 100);
+  XLA_VLOG_LINES(1, "Before MSA: \n" + module->ToString());
+  AssignMemorySpace(module.get(), std::move(memory_space_options),
+                    buffer_interval_compare, &prefetch_interval_picker);
+  XLA_VLOG_LINES(1, "After MSA: \n" + module->ToString());
+  CheckMemorySpaceForInstructionNames(
+      module.get(),
+      {"negate0", "custom_call0", "custom_call1", "custom_call2",
+       "custom_call3"},
+      kAlternateMemorySpace);
+  CheckOperandOpcodeAndMemorySpaceForInstructionNames(
+      module.get(),
+      {"negate1", "negate3", "negate5", "negate8", "custom_call0",
+       "custom_call1", "custom_call2", "custom_call3"},
+      /*operand_number=*/0, /*operand_memory_space=*/kAlternateMemorySpace);
 }
 
 }  // namespace
