@@ -69,6 +69,11 @@ struct UseInterval {
   int64_t last_use_time;
 };
 
+struct TimeInterval {
+  int64_t inclusive_start_time;
+  int64_t inclusive_end_time;
+};
+
 // A struct representing an asynchronous copy with its logical start and end
 // time (time that copy done is scheduled), the resource this copy would use,
 // its destination memory space, and a unique ID.
@@ -1367,9 +1372,9 @@ class MsaAlgorithm : public GlobalDecreasingSizeBestFitHeap<HloValue> {
                       std::vector<std::unique_ptr<ReservedAllocation>>>
       reserved_allocations_for_alt_mem_colorings_;
 
-  // Maps defining HloPositions to the list of times it is required to be in
-  // default memory, to meet buffer coloring requirements.
-  absl::flat_hash_map<HloPosition, std::vector<int64_t>>
+  // Maps defining HloPositions to the list of time intervals it is required to
+  // be in default memory, to meet buffer coloring requirements.
+  absl::flat_hash_map<HloPosition, std::vector<TimeInterval>>
       default_memory_coloring_requirements_;
 
   // Set of HloUses that are in the default memory.
