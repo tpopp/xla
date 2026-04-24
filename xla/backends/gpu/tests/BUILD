@@ -1416,6 +1416,9 @@ xla_test(
         "gpu": [
             "multi_gpu",
         ],
+        "gb200": [
+            "broken",
+        ],
     },
     backends = ["gpu"],
     deps = [
