@@ -147,7 +147,7 @@ bool isPythonCallbackCustomCall(mlir::stablehlo::CustomCallOp op);
 
 // Parses `shardingsFrontendAttr` as a `TensorShardingPerValueAttr`, duplicates
 // the shardings at the specified indices, and returns the result as a string.
-std::string duplicateShardingsAtIndices(
+absl::StatusOr<std::string> duplicateShardingsAtIndices(
     mlir::StringRef shardingsFrontendAttr,
     const llvm::BitVector& indicesToDuplicate);
 
