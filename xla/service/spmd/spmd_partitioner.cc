@@ -687,11 +687,17 @@ PartitionedHlo PartitionedHlo::ReshardNoCache(
   }
 
   // 'Replicated' to partial replicated.
-  if (target.ReplicateOnLastTileDim()) {
-    std::vector<int64_t> group_dims(target.num_dimensions() - 1);
+  if (target.HasPartialReplication()) {
+    HloSharding target_v2 =
+        target.UseNamedShardingLeaf()
+            ? HloSharding::V3ToV2Sharding(target.named_sharding())
+            : target;
+    std::vector<int64_t> group_dims(target_v2.num_dimensions());
     absl::c_iota(group_dims, 0);
+    int64_t replication_dim = target_v2.SubgroupReplicationDim();
+    group_dims.erase(group_dims.begin() + replication_dim);
     auto target_grouped =
-        hlo_sharding_util::GroupShardingOnDims(target, group_dims);
+        hlo_sharding_util::GroupShardingOnDims(target_v2, group_dims);
     auto partially_sharded = PerGroupSliceFromReplicated(
         hlo_, state_.partition_id, target_grouped.device_groups, group_dims,
         target_grouped.group_dim_sizes, state_.b);
