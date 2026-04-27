@@ -1914,7 +1914,7 @@ absl::Status BufferAssigner::AssignBuffersForComputations(
   std::unique_ptr<CallGraph> call_graph =
       CallGraph::Build(computations[0]->parent());
   TF_RETURN_IF_ERROR(call_graph->VisitNodes([&](const CallGraphNode& node) {
-    if (absl::c_linear_search(computations, node.computation())) {
+    if (computations_set.contains(node.computation())) {
       reverse_post_order_computations.push_back(node.computation());
     }
     return absl::OkStatus();
