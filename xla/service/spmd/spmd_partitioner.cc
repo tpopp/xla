@@ -2265,14 +2265,27 @@ std::optional<PartitionedHlo> PartitionedHlo::TryComplexReshardHandling(
 std::optional<PartitionedHlo>
 PartitionedHlo::ReshardPartialReplicateWithAllToAll(
     const HloSharding& target) const {
-  bool source_is_partial_replicate = sharding().ReplicateOnLastTileDim();
+  // TODO(b/485512834): We can probably support named sharding here, but it
+  // requires some thought about how the last tile dimension extraction can
+  // be reflected in the new representation.
+  HloSharding source_sharding =
+      sharding().UseNamedShardingLeaf()
+          ? HloSharding::V3ToV2Sharding(sharding().named_sharding())
+          : sharding();
+  HloSharding target_sharding =
+      target.UseNamedShardingLeaf()
+          ? HloSharding::V3ToV2Sharding(target.named_sharding())
+          : target;
+
+  bool source_is_partial_replicate = source_sharding.ReplicateOnLastTileDim();
   const auto& partial_replicate_sharding =
-      source_is_partial_replicate ? sharding() : target;
+      source_is_partial_replicate ? source_sharding : target_sharding;
   // If neither the source nor the target is partial replicate, return null.
   if (!partial_replicate_sharding.ReplicateOnLastTileDim()) {
     return std::nullopt;
   }
-  const auto& tile_sharding = source_is_partial_replicate ? target : sharding();
+  const auto& tile_sharding =
+      source_is_partial_replicate ? target_sharding : source_sharding;
   // If both source and target are partial replicate, should be supported in
   // Reshard with AllToAll already.
   if (tile_sharding.ReplicateOnLastTileDim() ||
@@ -2331,17 +2344,18 @@ PartitionedHlo::ReshardPartialReplicateWithAllToAll(
 
   if (source_is_partial_replicate) {
     if (auto src_tgt_dims = GetReshardAllToAllSourceTargetDims(
-            sharding(), tmp_partial_replicate_sharding)) {
+            source_sharding, tmp_partial_replicate_sharding)) {
       auto partitioned_hlo =
           ReshardWithAllToAll(tmp_partial_replicate_sharding, *src_tgt_dims);
-      return partitioned_hlo.Reshard(target);
+      return partitioned_hlo.Reshard(target_sharding);
     }
   } else {
     auto partitioned_hlo = Reshard(tmp_partial_replicate_sharding);
 
     if (auto src_tgt_dims = GetReshardAllToAllSourceTargetDims(
-            partitioned_hlo.sharding(), target)) {
-      return partitioned_hlo.ReshardWithAllToAll(target, *src_tgt_dims);
+            partitioned_hlo.sharding(), target_sharding)) {
+      return partitioned_hlo.ReshardWithAllToAll(target_sharding,
+                                                 *src_tgt_dims);
     }
   }
 
