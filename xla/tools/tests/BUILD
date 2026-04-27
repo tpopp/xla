@@ -30,6 +30,7 @@ xla_cc_test(
         "nomsan",  # No msan for precompiled Nvidia binaries.
     ],
     deps = [
+        "//xla/tsl/platform:env",
         "//xla/tsl/platform:subprocess",
         "@com_google_googletest//:gtest",
         "@com_google_googletest//:gtest_main",

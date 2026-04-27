@@ -17,6 +17,7 @@ limitations under the License.
 #include <vector>
 
 #include <gmock/gmock.h>
+#include "xla/tsl/platform/env.h"
 #include "xla/tsl/platform/subprocess.h"
 #include "tsl/platform/path.h"
 #include "tsl/platform/test.h"
@@ -74,11 +75,13 @@ ENTRY %main.3 () -> f64[3,3] {
   EXPECT_THAT(stdout_output_, testing::HasSubstr(expected_hlo_string));
 }
 
-TEST_F(HloExpandTest, SpmdHlo) {
+TEST_F(HloExpandTest, SpmdHloWithoutHloShardingV3) {
+  tsl::setenv("XLA_FLAGS", "--xla_enable_hlo_sharding_v3=false", 1);
   std::string hlo_path = tsl::io::JoinPath(tsl::testing::XlaSrcRoot(), "tools",
                                            "tests", "data", "spmd.hlo");
   std::vector<std::string> additional_flags = {"--spmd_expander", hlo_path};
   HloOpt(additional_flags);
+  tsl::unsetenv("XLA_FLAGS");
 
   const std::string& expected_hlo_string =
       R"(HloModule module, entry_computation_layout={(f32[24,64]{1,0}, f32[39296,64]{1,0})->f32[24,19648]{1,0}}, num_partitions=2
@@ -87,6 +90,36 @@ ENTRY %entry_spmd (param: f32[24,64], param.1: f32[39296,64]) -> f32[24,19648] {
   %param = f32[24,64]{1,0} parameter(0), sharding={replicated}
   %lhs.copy.1 = f32[24,64]{1,0} copy(%param)
   %param.1 = f32[39296,64]{1,0} parameter(1), sharding={replicated}
+  %constant = s32[2]{0} constant({0, 19648})
+  %partition-id = u32[] partition-id()
+  %dynamic-slice = s32[1]{0} dynamic-slice(%constant, %partition-id), dynamic_slice_sizes={1}
+  %reshape = s32[] reshape(%dynamic-slice)
+  %constant.1 = s32[] constant(0)
+  %dynamic-slice.1 = f32[19648,64]{1,0} dynamic-slice(%param.1, %reshape, %constant.1), dynamic_slice_sizes={19648,64}
+  %rhs.copy.1 = f32[19648,64]{1,0} copy(%dynamic-slice.1)
+  ROOT %dot.1 = f32[24,19648]{1,0} dot(%lhs.copy.1, %rhs.copy.1), lhs_contracting_dims={1}, rhs_contracting_dims={1}
+})";
+
+  EXPECT_TRUE(exited_normally_);
+  EXPECT_EQ(exit_status_, 0);
+  EXPECT_THAT(stdout_output_, testing::HasSubstr(expected_hlo_string));
+}
+
+TEST_F(HloExpandTest, SpmdHloWithHloShardingV3) {
+  tsl::setenv("XLA_FLAGS", "--xla_enable_hlo_sharding_v3=true", 1);
+  std::string hlo_path = tsl::io::JoinPath(tsl::testing::XlaSrcRoot(), "tools",
+                                           "tests", "data", "spmd.hlo");
+  std::vector<std::string> additional_flags = {"--spmd_expander", hlo_path};
+  HloOpt(additional_flags);
+  tsl::unsetenv("XLA_FLAGS");
+
+  const std::string& expected_hlo_string =
+      R"(HloModule module, entry_computation_layout={(f32[24,64]{1,0}, f32[39296,64]{1,0})->f32[24,19648]{1,0}}, num_partitions=2
+
+ENTRY %entry_spmd (param: f32[24,64], param.1: f32[39296,64]) -> f32[24,19648] {
+  %param = f32[24,64]{1,0} parameter(0), sharding={mesh[], replicated}
+  %lhs.copy.1 = f32[24,64]{1,0} copy(%param)
+  %param.1 = f32[39296,64]{1,0} parameter(1), sharding={mesh[], replicated}
   %constant = s32[2]{0} constant({0, 19648})
   %partition-id = u32[] partition-id()
   %dynamic-slice = s32[1]{0} dynamic-slice(%constant, %partition-id), dynamic_slice_sizes={1}
