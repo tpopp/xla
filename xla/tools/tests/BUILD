@@ -32,6 +32,7 @@ xla_cc_test(
     deps = [
         "//xla/tsl/platform:env",
         "//xla/tsl/platform:subprocess",
+        "@com_google_absl//absl/strings:string_view",
         "@com_google_googletest//:gtest",
         "@com_google_googletest//:gtest_main",
         "@tsl//tsl/platform:path",

@@ -17,6 +17,7 @@ limitations under the License.
 #include <vector>
 
 #include <gmock/gmock.h>
+#include "absl/strings/string_view.h"
 #include "xla/tsl/platform/env.h"
 #include "xla/tsl/platform/subprocess.h"
 #include "tsl/platform/path.h"
@@ -62,7 +63,7 @@ TEST_F(HloExpandTest, CholeskyHlo) {
   std::vector<std::string> additional_flags = {"--input_format=hlo", hlo_path};
   HloOpt(additional_flags);
 
-  const std::string& expected_hlo_string =
+  constexpr absl::string_view expected_hlo_string =
       R"(HloModule main, entry_computation_layout={()->f64[3,3]{1,0}}
 
 ENTRY %main.3 () -> f64[3,3] {
@@ -83,7 +84,7 @@ TEST_F(HloExpandTest, SpmdHloWithoutHloShardingV3) {
   HloOpt(additional_flags);
   tsl::unsetenv("XLA_FLAGS");
 
-  const std::string& expected_hlo_string =
+  constexpr absl::string_view expected_hlo_string =
       R"(HloModule module, entry_computation_layout={(f32[24,64]{1,0}, f32[39296,64]{1,0})->f32[24,19648]{1,0}}, num_partitions=2
 
 ENTRY %entry_spmd (param: f32[24,64], param.1: f32[39296,64]) -> f32[24,19648] {
@@ -113,7 +114,7 @@ TEST_F(HloExpandTest, SpmdHloWithHloShardingV3) {
   HloOpt(additional_flags);
   tsl::unsetenv("XLA_FLAGS");
 
-  const std::string& expected_hlo_string =
+  constexpr absl::string_view expected_hlo_string =
       R"(HloModule module, entry_computation_layout={(f32[24,64]{1,0}, f32[39296,64]{1,0})->f32[24,19648]{1,0}}, num_partitions=2
 
 ENTRY %entry_spmd (param: f32[24,64], param.1: f32[39296,64]) -> f32[24,19648] {
@@ -142,7 +143,7 @@ TEST_F(HloExpandTest, CholeskyExpanderHlo) {
                                                "--expand_all"};
   HloOpt(additional_flags);
 
-  const std::string& expected_hlo_string = "%xla.cholesky_f64";
+  constexpr absl::string_view expected_hlo_string = "%xla.cholesky_f64";
 
   EXPECT_TRUE(exited_normally_);
   EXPECT_EQ(exit_status_, 0);
@@ -154,7 +155,7 @@ TEST_F(HloExpandTest, InvalidArgc) {
                                                "bar", "baz"};
   HloOpt(additional_flags);
 
-  const std::string& expected_string =
+  constexpr absl::string_view expected_string =
       "Cannot parse more than one argument. See usage below:";
 
   EXPECT_TRUE(exited_normally_);
@@ -168,7 +169,7 @@ TEST_F(HloExpandTest, InvalidInputFileExtension) {
   std::vector<std::string> additional_flags = {hlo_path};
   HloOpt(additional_flags);
 
-  const std::string& expected_string =
+  constexpr absl::string_view expected_string =
       "input_format must be specified as [hlo|pb|pbtxt|txt].";
 
   EXPECT_TRUE(exited_normally_);
@@ -180,7 +181,7 @@ TEST_F(HloExpandTest, InvalidInputFormat) {
   std::vector<std::string> additional_flags = {"--input_format=foo"};
   HloOpt(additional_flags);
 
-  const std::string& expected_string =
+  constexpr absl::string_view expected_string =
       "input_format must be specified as [hlo|pb|pbtxt|txt].";
 
   EXPECT_TRUE(exited_normally_);
@@ -197,7 +198,7 @@ TEST_F(HloExpandTest, InvalidOutputFileExtension) {
                                                "--output_file=" + output_path};
   HloOpt(additional_flags);
 
-  const std::string& expected_string =
+  constexpr absl::string_view expected_string =
       "output_format must be specified as [hlo|pb|pbtxt].";
 
   EXPECT_TRUE(exited_normally_);
@@ -212,7 +213,7 @@ TEST_F(HloExpandTest, InvalidOutputFormat) {
                                                "--output_format=foo"};
   HloOpt(additional_flags);
 
-  const std::string& expected_string =
+  constexpr absl::string_view expected_string =
       "output_format must be specified as [hlo|pb|pbtxt].";
 
   EXPECT_TRUE(exited_normally_);
@@ -226,7 +227,7 @@ TEST_F(HloExpandTest, InvalidFile) {
   std::vector<std::string> additional_flags = {"--input_format=hlo", hlo_path};
   HloOpt(additional_flags);
 
-  const std::string& expected_string = "Try: hlo-expand --help";
+  constexpr absl::string_view expected_string = "Try: hlo-expand --help";
 
   EXPECT_TRUE(exited_normally_);
   EXPECT_EQ(exit_status_, 1);
@@ -240,7 +241,7 @@ TEST_F(HloExpandTest, UnsupportedOutputFormat) {
                                                "--output_format=pb", hlo_path};
   HloOpt(additional_flags);
 
-  const std::string& expected_string =
+  constexpr absl::string_view expected_string =
       "Printing to stdout must specify supported "
       "output_format=[hlo|pbtxt|txt].";
 
@@ -256,7 +257,7 @@ TEST_F(HloExpandTest, VerificationFailure) {
   std::vector<std::string> additional_flags = {"--verify_hlo", hlo_path};
   HloOpt(additional_flags);
 
-  const std::string& expected_string =
+  constexpr absl::string_view expected_string =
       "Cannot concatenate arrays that differ in dimensions";
 
   EXPECT_TRUE(exited_normally_);
