@@ -2173,8 +2173,8 @@ std::optional<PartitionedHlo> PartitionedHlo::TryComplexReshardHandling(
   VLOG(5) << "Trying to split complicated reshard: " << sharding().ToString()
           << " to " << target.ToString();
   const bool is_source_partially_replicated =
-      sharding().ReplicateOnLastTileDim();
-  const bool is_target_partially_replicated = target.ReplicateOnLastTileDim();
+      sharding().HasPartialReplication();
+  const bool is_target_partially_replicated = target.HasPartialReplication();
   if (auto reshape = PatternMatchMergeOrSplitSharding(this->base_shape(),
                                                       sharding(), target)) {
     auto& [before_sharding, new_reshaped_sharding, source_dim] = *reshape;
@@ -2216,7 +2216,9 @@ std::optional<PartitionedHlo> PartitionedHlo::TryComplexReshardHandling(
     return final_reshard;
   }
   if (is_source_partially_replicated && !is_target_partially_replicated) {
-    const int64_t partial_repl_amount = sharding().dimensions().back();
+    const int64_t replication_dim = sharding().SubgroupReplicationDim();
+    const int64_t partial_repl_amount =
+        sharding().dimensions()[replication_dim];
     int64_t first_different_dimension = -1;
     // Trying to match conditions like [..,X,..,Z,..,Y] last_tile_dim_replicate
     // to [..,Y,..,Z,..,X,..], where Y in the source is partially replicated,
@@ -2238,7 +2240,8 @@ std::optional<PartitionedHlo> PartitionedHlo::TryComplexReshardHandling(
             << sharding().ToString();
     std::vector<int64_t> transpose_dims(sharding().num_dimensions(), 0);
     absl::c_iota(transpose_dims, 0);
-    std::swap(transpose_dims[first_different_dimension], transpose_dims.back());
+    std::swap(transpose_dims[first_different_dimension],
+              transpose_dims[replication_dim]);
     auto intermediate_sharding =
         hlo_sharding_util::TransposeSharding(sharding(), transpose_dims);
     auto intermediate_reshard = Reshard(intermediate_sharding);
