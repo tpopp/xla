@@ -101,11 +101,9 @@ void addSdyRoundTripImportPipeline(mlir::OpPassManager& pm,
     // liftAndDedupMeshes is required here because of sdy shardings added
     // directly to hlo in tf2xla.
     pm.addPass(mlir::sdy::createLiftInlinedMeshesPass());
-    pm.addPass(mlir::sdy::createFlattenCallGraphPass());
     pm.addPass(createSdyRoundTripDedupMeshesPass());
-  } else {
-    pm.addPass(mlir::sdy::createFlattenCallGraphPass());
   }
+  pm.addPass(mlir::sdy::createFlattenCallGraphPass());
   pm.addPass(createCanonicalizerPass(
       mlir::GreedyRewriteConfig()
           .setUseTopDownTraversal(true)
