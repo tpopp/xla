@@ -176,6 +176,9 @@ class UnflattenCallGraphPass
     llvm::SmallDenseMap<ComputationKey, FuncOp> funcCache =
         populateFuncCache(moduleOp, symbolTable, dedupFunctionsFully);
     moduleOp.walk([&](CallOp callOp) {
+      if (isManualComputation(callOp, /*isInlineable=*/true)) {
+        return;
+      }
       ComputationKey funcCacheKey = getComputationKey(
           callOp, symbolTable, /*ignoreShardings=*/dedupFunctionsFully);
       FuncOp funcOp = funcCache[funcCacheKey];
