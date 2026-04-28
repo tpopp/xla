@@ -1200,9 +1200,6 @@ void HloModule::CleanupComputations() {
 void HloModule::CanonicalizeComputationLocalIds() {
   for (auto* computation : computations()) {
     computation->CanonicalizeLocalIds();
-    if (has_schedule() && schedule().is_computation_scheduled(computation)) {
-      schedule().GetOrCreateSequence(computation).update_id_sequence();
-    }
   }
 }
 

@@ -361,7 +361,7 @@ class HloModule {
   }
 
   // Canonicalizes the local_ids of all instructions in all computations
-  // in this module and updates the schedule's instruction unique IDs.
+  // in this module.
   //
   // WARNING: This is a dangerous API because it reassigns local IDs in all
   // computations. It should only be used in contexts where you are certain
