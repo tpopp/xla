@@ -103,13 +103,13 @@ void addSdyRoundTripImportPipeline(mlir::OpPassManager& pm,
     pm.addPass(mlir::sdy::createLiftInlinedMeshesPass());
     pm.addPass(createSdyRoundTripDedupMeshesPass());
   }
-  pm.addPass(mlir::sdy::createFlattenCallGraphPass());
   pm.addPass(createCanonicalizerPass(
       mlir::GreedyRewriteConfig()
           .setUseTopDownTraversal(true)
           .setRegionSimplificationLevel(mlir::GreedySimplifyRegionLevel::Normal)
           .enableFolding(false)
           .enableConstantCSE(false)));
+  pm.addPass(mlir::sdy::createFlattenCallGraphPass());
 }
 
 namespace {
