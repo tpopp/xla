@@ -18,6 +18,7 @@ limitations under the License.
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <queue>
 #include <string>
@@ -55,6 +56,7 @@ limitations under the License.
 #include "xla/shape_util.h"
 #include "xla/stream_executor/device_description.h"
 #include "xla/tsl/platform/errors.h"
+#include "xla/tsl/platform/logging.h"
 #include "xla/tsl/platform/statusor.h"
 #include "xla/util.h"
 #include "xla/xla_data.pb.h"
@@ -671,54 +673,35 @@ HlosAndRequirements FuseDotOutput(
 
 namespace {
 
-class Decision {
- public:
-  // Returns true if the emitter capable of emitting the fusion (profitable or
-  // not).
-  bool CanFuse() const { return fusing_decision_.CanFuse() || able_to_fuse_; }
-
-  // Returns true if it's profitable to fuse.
-  bool WantToFuse() const { return fusing_decision_.CanFuse(); }
-
-  std::string Explain() const { return fusing_decision_.Explain(); }
-
-  static Decision Allow() { return {FusionDecision::Allow(), true}; };
-
-  static Decision Deny(absl::string_view value) {
-    return {FusionDecision::Forbid(value), false};
-  }
-
-  static Decision NotProfitable(absl::string_view value) {
-    return {FusionDecision::Forbid(value), true};
-  }
-
- private:
-  Decision(FusionDecision decision, bool able_to_fuse)
-      : fusing_decision_(std::move(decision)), able_to_fuse_(able_to_fuse) {}
-
-  FusionDecision fusing_decision_;
-  bool able_to_fuse_;
+// Holds all information necessary to insert a fusion computation into the
+// original HLO module.
+struct Fusion {
+  // Ordered pointers to HLO instructions in the original module that are used
+  // as parameters in the fusion computation.
+  std::vector<HloInstruction*> inputs;
+  // The fusion computation.
+  std::unique_ptr<HloComputation> computation;
+  // Pointer to the output in the original HLO module that the fusion
+  // computation replaces.
+  HloInstruction* output = nullptr;
 };
 
 }  // namespace
 
 // Fuses dot and the compatible and profitable to fuse operations around it
-// into a new fusion computation constructed using the builder. fusion_inputs
-// get populated with the non-fused instructions that become operands of the
-// call to this fusion. fusion_output_ptr (if not nullptr) gets assigned the
-// original instruction that has to be replaced by the call to the fusion.
-absl::StatusOr<Decision> CreateDotFusion(
+// into a new fusion computation.
+absl::StatusOr<std::variant<Fusion, FusionDecision>> CreateDotFusion(
     const HloDotInstruction& dot, const se::GpuComputeCapability gpu_version,
-    HloComputation::Builder& builder,
-    std::vector<HloInstruction*>& fusion_inputs,
-    HloInstruction** fusion_output_ptr) {
+    absl::string_view name) {
   VLOG(5) << dot.ToString();
   if (CodegenDecision is_supported =
           IsTritonSupportedInstruction(dot, gpu_version);
       !is_supported) {
-    VLOG(3) << is_supported.Explain();
-    return Decision::Deny(is_supported.Explain());
+    return is_supported;
   }
+
+  HloComputation::Builder builder(name);
+  std::vector<HloInstruction*> fusion_inputs;
 
   std::vector<HlosAndRequirements> hlos_and_reqs;
   hlos_and_reqs.reserve(dot.operand_count());
@@ -737,10 +720,8 @@ absl::StatusOr<Decision> CreateDotFusion(
       FuseDotOutput(dot, fused_dot, gpu_version, lhs_hlos_and_reqs.requirements,
                     builder, fusion_inputs);
 
-  if (fusion_output_ptr != nullptr) {
-    *fusion_output_ptr =
-        const_cast<HloInstruction*>(fused_output_and_reqs.original_hlo);
-  }
+  HloInstruction* fusion_output =
+      const_cast<HloInstruction*>(fused_output_and_reqs.original_hlo);
 
   // We cannot handle int4 parameters if the batch dimension is the minor one.
   // The cost of analysis could be expensive, so we only do it if we have to.
@@ -757,7 +738,7 @@ absl::StatusOr<Decision> CreateDotFusion(
               dot, TritonFusionAnalysis::Scope::LHS) ||
           !analysis.IsBatchDimMinorForInt4Parameter(
               dot, TritonFusionAnalysis::Scope::RHS)) {
-        return Decision::Deny(
+        return FusionDecision::Forbid(
             "Fusion is not possible because the parameter with the type S4 has "
             "minor batch dimension.");
       }
@@ -774,7 +755,7 @@ absl::StatusOr<Decision> CreateDotFusion(
       algorithm == PrecisionConfig::ALG_DOT_TF32_TF32_F32_X3 ||
       algorithm == PrecisionConfig::ALG_DOT_F32_F32_F32 ||
       dot.GetModule()->config().debug_options().xla_gpu_triton_gemm_any()) {
-    return Decision::Allow();
+    return Fusion{std::move(fusion_inputs), builder.Build(), fusion_output};
   }
 
   bool is_pure_matmul = true;
@@ -791,10 +772,10 @@ absl::StatusOr<Decision> CreateDotFusion(
   });
 
   if (is_pure_matmul) {
-    return Decision::NotProfitable("Pure Matmul");
+    return FusionDecision::Forbid("Pure Matmul");
   }
 
-  return Decision::Allow();
+  return Fusion{std::move(fusion_inputs), builder.Build(), fusion_output};
 }
 
 // Extracts into fused computations parts of HLO graph including dot()
@@ -822,25 +803,27 @@ class GemmFusionVisitor : public DfsHloRewriteVisitor {
     }
 
     std::string fusion_name = absl::StrCat("gemm_fusion_", dot->name());
-    HloComputation::Builder builder(absl::StrCat(fusion_name, "_computation"));
-    std::vector<HloInstruction*> fusion_inputs;
-    HloInstruction* fusion_output = nullptr;
     TF_ASSIGN_OR_RETURN(
-        const Decision decision,
-        CreateDotFusion(*Cast<HloDotInstruction>(dot), gpu_version_, builder,
-                        fusion_inputs, &fusion_output));
-    if (!decision.WantToFuse()) {
+        auto fusion_or_decision,
+        CreateDotFusion(*Cast<HloDotInstruction>(dot), gpu_version_,
+                        absl::StrCat(fusion_name, "_computation")));
+
+    if (std::holds_alternative<FusionDecision>(fusion_or_decision)) {
+      const FusionDecision& decision =
+          std::get<FusionDecision>(fusion_or_decision);
       VLOG(3) << "Not fusing: " << decision.Explain();
       return absl::OkStatus();
     }
 
+    Fusion fusion = std::get<Fusion>(std::move(fusion_or_decision));
+
     HloComputation* computation =
-        dot->GetModule()->AddComputationAndUnifyNamesAndIds(builder.Build(),
-                                                            /*is_entry=*/false);
+        dot->GetModule()->AddComputationAndUnifyNamesAndIds(
+            std::move(fusion.computation), /*is_entry=*/false);
     HloInstruction* dot_fusion =
         dot->parent()->AddInstruction(HloInstruction::CreateFusion(
             computation->root_instruction()->shape(),
-            HloInstruction::FusionKind::kCustom, fusion_inputs, computation));
+            HloInstruction::FusionKind::kCustom, fusion.inputs, computation));
     // Copy the metadata of the `dot` to the newly created `fusion` op. This
     // is convenient for handling metadata in split-k rewriting subsequently.
     dot_fusion->set_metadata(dot->metadata());
@@ -853,14 +836,14 @@ class GemmFusionVisitor : public DfsHloRewriteVisitor {
     backend_config.set_kind(kTritonGemmFusionKind);
     TF_RETURN_IF_ERROR(dot_fusion->set_backend_config(gpu_config));
 
-    if (fusion_output->IsRoot()) {
-      fusion_output->parent()->set_root_instruction(dot_fusion);
+    if (fusion.output->IsRoot()) {
+      fusion.output->parent()->set_root_instruction(dot_fusion);
       TF_RETURN_IF_ERROR(
-          fusion_output->parent()->RemoveInstructionAndUnusedOperands(
-              fusion_output));
+          fusion.output->parent()->RemoveInstructionAndUnusedOperands(
+              fusion.output));
       MarkAsChanged();
     } else {
-      TF_RETURN_IF_ERROR(ReplaceInstruction(fusion_output, dot_fusion));
+      TF_RETURN_IF_ERROR(ReplaceInstruction(fusion.output, dot_fusion));
     }
     XLA_VLOG_LINES(5, computation->ToString(HloPrintOptions::ShortParsable()));
     return absl::OkStatus();
