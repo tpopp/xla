@@ -7594,11 +7594,25 @@ absl::Status MsaAlgorithm::WindowPrefetch() {
   absl::flat_hash_map<HloInstruction*, HloInstruction*> cloned_insts;
   const std::vector<HloInstruction*>& instruction_sequence =
       hlo_live_range_.flattened_instruction_sequence().instructions();
+  // Determine which instructions are window-prefetchable. Use the
+  // caller-provided functor if available, otherwise fall back to the default
+  // logic: output fusions and loop fusions not on sparsecore.
+  auto is_window_prefetchable =
+      options_.is_window_prefetchable_instruction_fn
+          ? options_.is_window_prefetchable_instruction_fn
+          : [](const HloInstruction* instruction) {
+              if (!instruction->IsOutputFusion() &&
+                  !instruction->IsLoopFusion()) {
+                return false;
+              }
+              if (instruction->parent()->execution_thread() == "sparsecore") {
+                return false;
+              }
+              return true;
+            };
+
   for (HloInstruction* instruction : instruction_sequence) {
-    if (!instruction->IsOutputFusion() && !instruction->IsLoopFusion()) {
-      continue;
-    }
-    if (instruction->parent()->execution_thread() == "sparsecore") {
+    if (!is_window_prefetchable(instruction)) {
       continue;
     }
 
