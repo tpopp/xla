@@ -3238,8 +3238,15 @@ MsaAlgorithm::GetPostProcessedSortedBufferIntervals() {
                options_.alternate_memory_space;
   };
 
+  auto does_buffer_have_alt_mem_coloring = [&](const HloValue* value) {
+    const HloBuffer& buffer =
+        alias_analysis_.GetUniqueBufferAt(value->defining_position());
+    return reserved_allocations_for_alt_mem_colorings_.contains(&buffer);
+  };
+
   struct BufferInfo {
     bool pre_colored = false;
+    bool alt_mem_coloring = false;
     int64_t definition_time = std::numeric_limits<int64_t>::min();
     int64_t last_use_time = std::numeric_limits<int64_t>::min();
   };
@@ -3300,6 +3307,30 @@ MsaAlgorithm::GetPostProcessedSortedBufferIntervals() {
 
     return sorted_buffer_intervals;
   }
+
+  // If test mode is enabled, return the buffer intervals in the order they were
+  // returned by the GetSortedBufferIntervals() function.
+  if (!options_.allocate_colored_buffers_early) {
+    return sorted_buffer_intervals;
+  }
+
+  // Stable sort the buffers in the following order:
+  // 1. Pre-colored buffers first.
+  // 2. Then, buffers with alt mem coloring first.
+  // Note the use of > instead of < in the sort function.
+  for (const MsaBufferInterval& interval : sorted_buffer_intervals) {
+    buffer_info[interval.buffer].alt_mem_coloring =
+        does_buffer_have_alt_mem_coloring(interval.buffer);
+  }
+  absl::c_stable_sort(sorted_buffer_intervals, [&](const MsaBufferInterval& a,
+                                                   const MsaBufferInterval& b) {
+    BufferInfo& a_properties = buffer_info.at(a.buffer);
+    BufferInfo& b_properties = buffer_info.at(b.buffer);
+    return std::forward_as_tuple(a_properties.pre_colored,
+                                 a_properties.alt_mem_coloring) >
+           std::forward_as_tuple(b_properties.pre_colored,
+                                 b_properties.alt_mem_coloring);
+  });
 
   return sorted_buffer_intervals;
 }
@@ -7674,6 +7705,16 @@ AllocationResult MsaAlgorithm::Prefetch(
       /*colocations=*/{},
       /*need_allocation=*/true,
   };
+
+  if (options_.enforce_prefetch_fifo_order) {
+    CHECK(!async_copy_ordering_.ViolatesOrdering(
+        /*exclusive_start_time=*/alternate_mem_interval.start - 1,
+        /*end_time=*/alternate_mem_interval.end))
+        << "Scheduling immediate prefetch is necessary to satisfy coloring "
+           "constraints but it violates FIFO ordering. Consider coloring "
+           "lesser buffers in alternate memory or disable prefetch fifo "
+           "ordering.";
+  }
 
   Chunk chunk_candidate = FindChunkCandidate(alternate_mem_interval);
 

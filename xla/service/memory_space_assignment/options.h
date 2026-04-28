@@ -412,6 +412,10 @@ struct Options {
 
   MsaSortOrderOverrides msa_sort_order_overrides;
 
+  // If true, allocates alternate memory colored buffers after pre-colored
+  // buffers but before other buffers.
+  bool allocate_colored_buffers_early = true;
+
   // A mode that enables expanding scoped alternate memory allocations to the
   // largest contiguous open space available.
   ExpandedScopedAlternateMemoryMode::Value
