@@ -265,8 +265,9 @@ TrackedDeviceBuffer::CloneWithControlDependency(PjRtMemorySpace* memory_space,
           return;
         }
         auto stream = local_device->BorrowStreamFromPool();
-        CHECK_OK(client->AllocateAndRecordEvent(definition_event_for_status,
-                                                local_device, stream.get()));
+        CHECK_OK(client->AllocateAndRecordEvent(
+            definition_event_for_status, local_device, stream.get(),
+            "TrackedDeviceBuffer::CloneWithControlDependency"));
         local_device->ReturnStreamToPool(std::move(stream));
       });
   return new_device_buffer;

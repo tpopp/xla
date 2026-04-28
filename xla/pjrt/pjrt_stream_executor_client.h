@@ -378,7 +378,8 @@ class PjRtStreamExecutorClient : public CommonPjRtClient {
 
   absl::Status AllocateAndRecordEvent(BufferSequencingEventRef event,
                                       LocalDeviceState* local_device,
-                                      se::Stream* stream);
+                                      se::Stream* stream,
+                                      absl::string_view tag = "");
 
   PjRtDeviceEventRef CreateErrorDeviceEvent(absl::Status error);
 

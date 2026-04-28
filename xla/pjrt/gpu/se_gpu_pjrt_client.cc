@@ -593,8 +593,8 @@ void FulfillDeviceEvent(PjRtStreamExecutorClient* client,
     client->SetEventAsError(device_event, status);
     return;
   }
-  absl::Status s =
-      client->AllocateAndRecordEvent(device_event, local_device_state, stream);
+  absl::Status s = client->AllocateAndRecordEvent(
+      device_event, local_device_state, stream, "CrossHostTransferBuffers");
   if (!s.ok()) {
     client->SetEventAsError(device_event, s);
   }
@@ -1313,8 +1313,8 @@ void StreamExecutorGpuClient::ScheduleRemoteSend(
                     gpu::GpuCollectives::On(*stream));
                 TF_RETURN_IF_ERROR(send_future.Await());
 
-                TF_RETURN_IF_ERROR(
-                    AllocateAndRecordEvent(usage_event, local_device, stream));
+                TF_RETURN_IF_ERROR(AllocateAndRecordEvent(
+                    usage_event, local_device, stream, "CrossHostSendBuffers"));
 
                 return absl::OkStatus();
               }();
@@ -1404,8 +1404,9 @@ StreamExecutorGpuClient::MakeCrossHostReceiveBuffers(
       definition_event.AndThen([mem]() {});
 
       // Set definition event.
-      TF_RETURN_IF_ERROR(
-          AllocateAndRecordEvent(definition_event, local_device, stream));
+      TF_RETURN_IF_ERROR(AllocateAndRecordEvent(definition_event, local_device,
+                                                stream,
+                                                "MakeCrossHostReceiveBuffers"));
 
       return absl::OkStatus();
     };

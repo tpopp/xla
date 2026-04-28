@@ -190,7 +190,8 @@ void PjRtStreamExecutorClient::ThenRecordEvent(BufferSequencingEventRef event,
       stream, [event]() { event.SetStateConcrete(); },
       [event](absl::Status status) {
         event.SetError(event->AppendErrorContext(status));
-      });
+      },
+      "RecordEvent");
   if (!status.ok()) {
     event.SetError(event->AppendErrorContext(status));
   }
@@ -198,9 +199,9 @@ void PjRtStreamExecutorClient::ThenRecordEvent(BufferSequencingEventRef event,
 
 absl::Status PjRtStreamExecutorClient::AllocateAndRecordEvent(
     BufferSequencingEventRef event, LocalDeviceState* local_device,
-    se::Stream* stream) {
+    se::Stream* stream, absl::string_view tag) {
   return local_device->AllocateAndRecordEvent(async_work_runner(), event,
-                                              stream);
+                                              stream, tag);
 }
 
 void PjRtStreamExecutorClient::SetEventAsError(BufferSequencingEventRef event,
@@ -429,7 +430,8 @@ absl::Status AddDestinationBufferSynchronization(
     PjRtStreamExecutorClient* client, LocalDeviceState* local_device,
     BufferSequencingEventRef definition_event, se::Stream* copy_stream) {
   absl::Status status = client->AllocateAndRecordEvent(
-      definition_event, local_device, copy_stream);
+      definition_event, local_device, copy_stream,
+      "AddDestinationBufferSynchronization");
   if (!status.ok()) {
     StallStreamOnError(local_device, copy_stream);
   }
@@ -963,7 +965,8 @@ PjRtStreamExecutorClient::CreateViewOfDeviceBuffer(
                         local_device->GetStreamFromExternalStream(*stream));
   }
   TF_RETURN_IF_ERROR(AllocateAndRecordEvent(definition_event, local_device,
-                                            definition_stream));
+                                            definition_stream,
+                                            "CreateViewOfDeviceBuffer"));
   absl::InlinedVector<PjRtDeviceEventRef, 2> definition_events;
   definition_events.emplace_back(std::move(definition_event));
 
@@ -1853,9 +1856,11 @@ PjRtStreamExecutorRawLoadedExecutable::Execute(
     if (key.has_value()) {
       start_time_ns = std::make_shared<uint64_t>();
       auto status = device_state->ThenExecuteCallback(
-          device_state->compute_stream(), [start_time_ns]() {
+          device_state->compute_stream(),
+          [start_time_ns]() {
             *start_time_ns = tsl::Env::Default()->NowNanos();
-          });
+          },
+          nullptr, "RecordExecuteStart");
       if (!status.ok()) {
         StallStreamOnError(device_state, device_state->compute_stream());
         LOG(ERROR) << "Problem registering Execute start time: " << status;
@@ -1934,7 +1939,8 @@ PjRtStreamExecutorRawLoadedExecutable::Execute(
                 absl::FromUnixNanos(tsl::Env::Default()->NowNanos()) -
                 absl::FromUnixNanos(*start_time_ns);
             xla::RecordDeviceTimeMeasurement(*key, elapsed, device_type);
-          });
+          },
+          nullptr, "RecordExecuteFinish");
       if (!status.ok()) {
         LOG(ERROR) << "Error logging device time.";
         StallStreamOnError(device_state, device_state->compute_stream());

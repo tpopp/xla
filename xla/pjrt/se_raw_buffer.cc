@@ -85,8 +85,9 @@ void PjRtStreamExecutorDeviceEventPromise::SetFromSEEvent(
 void PjRtStreamExecutorDeviceEventPromise::SetReady() {
   auto result = BufferSequencingEvent::Create(client_->async_work_runner());
   auto stream = local_device_->BorrowStreamFromPool();
-  auto status =
-      client_->AllocateAndRecordEvent(result, local_device_, stream.get());
+  auto status = client_->AllocateAndRecordEvent(
+      result, local_device_, stream.get(),
+      "PjRtStreamExecutorDeviceEventPromise::SetReady");
   local_device_->ReturnStreamToPool(std::move(stream));
   if (!status.ok()) {
     SetError(status);
@@ -139,8 +140,9 @@ PjRtStreamExecutorRawBuffer::CopyRawHostToDeviceAndReturnEvent(
       return absl::OkStatus();
     }();
     if (status.ok()) {
-      status =
-          client->AllocateAndRecordEvent(device_event, local_device, stream);
+      status = client->AllocateAndRecordEvent(
+          device_event, local_device, stream,
+          "PjRtStreamExecutorRawBuffer::CopyRawHostToDevice");
       if (staging_buffer) {
         device_event.AndThen([staging_buffer = std::move(staging_buffer)]() {});
       }
@@ -197,8 +199,9 @@ PjRtStreamExecutorRawBuffer::CopyRawDeviceToHostAndReturnEvent(
       return absl::OkStatus();
     }();
     if (status.ok()) {
-      status =
-          client->AllocateAndRecordEvent(device_event, local_device, stream);
+      status = client->AllocateAndRecordEvent(
+          device_event, local_device, stream,
+          "PjRtStreamExecutorRawBuffer::CopyRawDeviceToHost");
     }
     if (!status.ok()) {
       client->SetEventAsError(device_event, status);
@@ -377,8 +380,9 @@ PjRtStreamExecutorRawBuffer::MakeAllocationReadyEvent() {
   if (!result) {
     result = BufferSequencingEvent::Create(client->async_work_runner());
     auto stream = local_device_->BorrowStreamFromPool();
-    auto status =
-        client->AllocateAndRecordEvent(result, local_device_, stream.get());
+    auto status = client->AllocateAndRecordEvent(
+        result, local_device_, stream.get(),
+        "PjRtStreamExecutorRawBuffer::MakeAllocationReadyEvent");
     local_device_->ReturnStreamToPool(std::move(stream));
     TF_RETURN_IF_ERROR(status);
   }
