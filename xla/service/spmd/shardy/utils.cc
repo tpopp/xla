@@ -606,10 +606,9 @@ void insertReshardsOnFuncArguments(FuncOp funcOp, CallOp callOp,
   for (auto [funcArgSharding, operand] : llvm::zip_equal(
            funcArgShardings.getShardings(), callOp->getOpOperands())) {
     if (!funcArgSharding.isEquivalent(getSharding(operand.get()))) {
-      auto copyOp = mlir::mhlo::CopyOp::create(rewriter, operand.get().getLoc(),
-                                               operand.get());
-      mlir::sdy::setShardings(copyOp, funcArgSharding);
-      operand.set(copyOp);
+      auto reshardOp = mlir::sdy::ReshardOp::create(
+          rewriter, operand.get().getLoc(), operand.get(), funcArgSharding);
+      operand.set(reshardOp);
     }
   }
 }
@@ -623,14 +622,13 @@ void insertReshardsOnFuncResults(TensorShardingPerValueAttr funcResultShardings,
         mlir::sdy::getSharding(result);
     if (!funcResultSharding.isEquivalent(callResultSharding)) {
       rewriter.setInsertionPointAfterValue(result);
-      auto copyOp =
-          mlir::mhlo::CopyOp::create(rewriter, result.getLoc(), result);
-      mlir::sdy::setShardings(
-          copyOp, callResultSharding
-                      ? callResultSharding
-                      : mlir::sdy::TensorShardingAttr::getFullyClosedLike(
-                            funcResultSharding));
-      rewriter.replaceAllUsesExcept(result, copyOp, copyOp);
+      auto reshardOp = mlir::sdy::ReshardOp::create(
+          rewriter, result.getLoc(), result,
+          callResultSharding
+              ? callResultSharding
+              : mlir::sdy::TensorShardingAttr::getFullyClosedLike(
+                    funcResultSharding));
+      rewriter.replaceAllUsesExcept(result, reshardOp, reshardOp);
     }
   }
   mlir::sdy::setShardings(callOp, funcResultShardings);
