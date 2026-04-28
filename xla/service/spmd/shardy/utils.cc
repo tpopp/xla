@@ -558,10 +558,6 @@ bool isManualComputation(FuncOp funcOp, bool isInlineable) {
 }
 
 namespace {
-mlir::sdy::ManualAxesAttr getManualAxes(CallOp callOp) {
-  return callOp->getAttrOfType<mlir::sdy::ManualAxesAttr>(kManualAxes);
-}
-
 // Returns the first non-maximal mesh on the given shardings, if there is
 // one. Otherwise returns `nullptr`.
 mlir::Attribute getMeshOrRef(
@@ -612,9 +608,6 @@ void insertReshardsOnFuncArguments(FuncOp funcOp, CallOp callOp,
     if (!funcArgSharding.isEquivalent(getSharding(operand.get()))) {
       auto copyOp = mlir::mhlo::CopyOp::create(rewriter, operand.get().getLoc(),
                                                operand.get());
-      if (mlir::sdy::ManualAxesAttr manualAxes = getManualAxes(callOp)) {
-        copyOp->setAttr(kManualAxes, manualAxes);
-      }
       mlir::sdy::setShardings(copyOp, funcArgSharding);
       operand.set(copyOp);
     }
@@ -632,9 +625,6 @@ void insertReshardsOnFuncResults(TensorShardingPerValueAttr funcResultShardings,
       rewriter.setInsertionPointAfterValue(result);
       auto copyOp =
           mlir::mhlo::CopyOp::create(rewriter, result.getLoc(), result);
-      if (mlir::sdy::ManualAxesAttr manualAxes = getManualAxes(callOp)) {
-        copyOp->setAttr(kManualAxes, manualAxes);
-      }
       mlir::sdy::setShardings(
           copyOp, callResultSharding
                       ? callResultSharding
