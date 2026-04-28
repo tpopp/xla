@@ -91,8 +91,8 @@ void addSdyRoundTripImportPipeline(mlir::OpPassManager& pm,
       mlir::stablehlo_ext::createStablehloCanonicalizeFromHloImportPass());
   pm.addPass(createSdyRoundTripImportShardyAttrsPass(enableHloShardingV3));
   pm.addPass(createSdyRoundTripShardMapImportPass());
-  pm.addPass(mlir::sdy::createFlattenCallGraphPass());
   pm.addPass(createImportSdyCustomCallsPass());
+  pm.addPass(mlir::sdy::createFlattenCallGraphPass());
   pm.addNestedPass<FuncOp>(createOpenWhileFreeVarsShardingPass());
   if (enableHloShardingV3 || liftAndDedupMeshes) {
     // Lift and dedup inlined meshes in case of HloShardingV3 as meshes are:
