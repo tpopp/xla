@@ -49,6 +49,18 @@ struct PJRT_Error {
   absl::Status status;
 };
 
+namespace pjrt {
+
+// TODO(parkers): move these to pjrt_c_api_status_utils.h and define
+// in terms of function tables.
+inline PJRT_Error* StatusToPjRtError(absl::Status s) {
+  return new PJRT_Error{std::move(s)};
+}
+
+inline void DestroyPjRtError(PJRT_Error* error) { delete error; }
+
+}  // namespace pjrt
+
 struct PJRT_TopologyDescription {
   // nullptr iff the PjRtTopologyDescription isn't owned by the caller. The PJRT
   // C API sometimes returns a topo desc that's owned by the caller and must be
