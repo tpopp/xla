@@ -108,11 +108,11 @@ cc_library(
         ":export_ops",
         ":export_shardings",
         ":shard_map_export",
-        ":unflatten_call_graph",
         "@llvm-project//llvm:Support",
         "@llvm-project//mlir:Pass",
         "@llvm-project//mlir:Support",
         "@llvm-project//mlir:Transforms",
+        "@shardy//shardy/dialect/sdy/transforms/export:passes",
     ],
 )
 
@@ -182,25 +182,5 @@ cc_library(
         "@llvm-project//mlir:Support",
         "@shardy//shardy/dialect/sdy/ir:dialect",
         "@stablehlo//:stablehlo_ops",
-    ],
-)
-
-cc_library(
-    name = "unflatten_call_graph",
-    srcs = ["unflatten_call_graph.cc"],
-    hdrs = ["unflatten_call_graph.h"],
-    deps = [
-        "//xla/mlir_hlo",
-        "//xla/service/spmd/shardy:constants",
-        "//xla/service/spmd/shardy:utils",
-        "@com_google_absl//absl/log:check",
-        "@llvm-project//llvm:Support",
-        "@llvm-project//mlir:Analysis",
-        "@llvm-project//mlir:FuncDialect",
-        "@llvm-project//mlir:IR",
-        "@llvm-project//mlir:Pass",
-        "@llvm-project//mlir:Support",
-        "@llvm-project//mlir:TransformUtils",
-        "@shardy//shardy/dialect/sdy/ir:dialect",
     ],
 )

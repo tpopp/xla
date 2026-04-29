@@ -19,12 +19,12 @@ limitations under the License.
 #include "mlir/Pass/PassOptions.h"
 #include "mlir/Pass/PassRegistry.h"
 #include "mlir/Transforms/Passes.h"
+#include "shardy/dialect/sdy/transforms/export/passes.h"
 #include "xla/service/spmd/shardy/stablehlo_round_trip/export_callback_custom_calls.h"
 #include "xla/service/spmd/shardy/stablehlo_round_trip/export_manual_reduction_collectives.h"
 #include "xla/service/spmd/shardy/stablehlo_round_trip/export_ops.h"
 #include "xla/service/spmd/shardy/stablehlo_round_trip/export_shardings.h"
 #include "xla/service/spmd/shardy/stablehlo_round_trip/shard_map_export.h"
-#include "xla/service/spmd/shardy/stablehlo_round_trip/unflatten_call_graph.h"
 
 namespace xla {
 namespace sdy {
@@ -32,7 +32,8 @@ namespace sdy {
 void addStablehloExportPipeline(mlir::OpPassManager& pm,
                                 const StablehloExportPipelineOptions& options) {
   if (!options.keepHloShardingConstraints) {
-    pm.addPass(createUnflattenCallGraphPass(options.dedupFunctionsFully));
+    pm.addPass(mlir::sdy::createUnflattenCallGraphPass(
+        mlir::sdy::UnflattenCallGraphPassOptions{options.dedupFunctionsFully}));
     pm.addPass(mlir::createSymbolDCEPass());
   }
   pm.addPass(createStablehloExportManualReductionCollectivesPass());
