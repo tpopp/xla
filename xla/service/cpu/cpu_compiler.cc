@@ -406,15 +406,11 @@ class CollectProfileCandidates : public DfsHloVisitorWithDefault {
   absl::Status HandleConditional(HloInstruction* conditional) override {
     TF_RETURN_IF_ERROR(DefaultAction(conditional));
 
-    CollectProfileCandidates candidates_for_true(hlo_to_profile_idx_,
-                                                 assigned_indices_);
-    TF_RETURN_IF_ERROR(
-        conditional->true_computation()->Accept(&candidates_for_true));
-
-    CollectProfileCandidates candidates_for_false(hlo_to_profile_idx_,
-                                                  assigned_indices_);
-    TF_RETURN_IF_ERROR(
-        conditional->false_computation()->Accept(&candidates_for_false));
+    for (HloComputation* branch : conditional->branch_computations()) {
+      CollectProfileCandidates candidates_for_branch(hlo_to_profile_idx_,
+                                                     assigned_indices_);
+      TF_RETURN_IF_ERROR(branch->Accept(&candidates_for_branch));
+    }
 
     return absl::OkStatus();
   }
