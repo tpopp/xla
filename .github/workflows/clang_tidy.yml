@@ -41,7 +41,7 @@ jobs:
       - name: "Update main branch"
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
-          git fetch origin main --depth=1
+          git fetch origin main
       - name: Configure Workspace
       # The actual compute capability does not matter. This allows deviceless run for this pipeline.
       # The common configs ensure that bazel query and bazel build don't refetch repo mappings.

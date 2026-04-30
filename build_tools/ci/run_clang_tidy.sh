@@ -24,9 +24,14 @@ if ! git rev-parse --is-inside-work-tree > /dev/null 2>&1; then
   echo "Error: This script must be run inside a Git repository."
   exit 1
 fi
-# Aways exit with 0 if no C++ files are changed.
 TARGET_REF=${TARGET_REF:-origin/main}
-CHANGED_FILES=$(git diff --name-only $(git merge-base "$TARGET_REF" HEAD) | grep -E '\.(cc|h)$' || true)
+MERGE_BASE=$(git merge-base "$TARGET_REF" HEAD || true)
+if [ -z "$MERGE_BASE" ]; then
+  echo "Could not find a common ancestor with $TARGET_REF. Please rebase on upstream main." >&2
+  exit 1
+fi
+CHANGED_FILES=$(git diff --name-only "$MERGE_BASE" | grep -E '\.(cc|h)$' || true)
+# Always exit with 0 if no C++ files are changed.
 if [ -z "$CHANGED_FILES" ]; then
   echo "No C++ files changed."
   exit 0
