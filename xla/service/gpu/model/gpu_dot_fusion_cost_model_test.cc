@@ -192,6 +192,32 @@ lhs_contracting_dims={1}, rhs_contracting_dims={0}, algorithm=dot_bf16_bf16_bf16
               absl_testing::StatusIs(absl::StatusCode::kFailedPrecondition));
 }
 
+TEST_F(GpuDotFusionCostModelTest, GpuDot3DGemmIsSupported) {
+  TF_ASSERT_OK_AND_ASSIGN(std::unique_ptr<VerifiedHloModule> module,
+                          ParseAndReturnVerifiedModule(R"(
+ENTRY e {
+p0 = bf16[16,1024,2048] parameter(0)
+p1 = bf16[16,2048,1024] parameter(1)
+ROOT r = bf16[16,1024,1024] dot(p0, p1),
+lhs_batch_dims={0}, rhs_batch_dims={0}, lhs_contracting_dims={2}, rhs_contracting_dims={1}, algorithm=dot_bf16_bf16_bf16,
+backend_config={"sizes":["32"]}
+})"));
+
+  BlockLevelParameters block_params;
+  block_params.output_tile_sizes = {{1, 128, 256}};
+  block_params.num_warps = 4;
+  block_params.num_ctas = 1;
+  block_params.num_stages = 1;
+  auto* dot =
+      Cast<HloDotInstruction>(module->entry_computation()->root_instruction());
+  ASSERT_IS_OK(gpu_dot_fusion_cost_model::IsSupported(dot));
+  TF_ASSERT_OK_AND_ASSIGN(
+      EstimateRunTimeData runtime_h100,
+      gpu_dot_fusion_cost_model::EstimateRunTimeForDotOpWithBlockParameters(
+          dot, block_params, ddh100_));
+  ASSERT_GT(absl::ToInt64Microseconds(runtime_h100.exec_time), 0);
+}
+
 }  // namespace
 }  // namespace gpu
 }  // namespace xla

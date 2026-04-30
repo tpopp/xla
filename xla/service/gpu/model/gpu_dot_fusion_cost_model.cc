@@ -158,8 +158,11 @@ DotProblemInfo::DotProblemInfo(const HloDotInstruction& dot) {
       rhs_shape.dimensions().size(), dim_numbers.rhs_contracting_dimensions(),
       dim_numbers.rhs_batch_dimensions());
 
+  // TODO: b/507943394 - Currently, `IsSupported` ensures there is at most one
+  // batch dimension. When multiple batch dimensions are supported, this should
+  // be the product of all batch dimension sizes.
   b = dim_numbers.lhs_batch_dimensions_size() > 0
-          ? dim_numbers.lhs_batch_dimensions(0)
+          ? lhs_shape.dimensions(dim_numbers.lhs_batch_dimensions(0))
           : 1;
   m = lhs_shape.dimensions(lhs_non_contracting_dims[0]);
   n = rhs_shape.dimensions(rhs_non_contracting_dims[0]);
@@ -315,11 +318,11 @@ absl::Status IsSupported(const HloDotInstruction* dot) {
   const DotDimensionNumbers& dim_numbers = dot->dot_dimension_numbers();
 
   DimensionVector lhs_non_contracting_dims = GetNonContractingDims(
-      lhs_shape.dimensions().size(), dim_numbers.lhs_batch_dimensions(),
-      dim_numbers.lhs_contracting_dimensions());
+      lhs_shape.dimensions().size(), dim_numbers.lhs_contracting_dimensions(),
+      dim_numbers.lhs_batch_dimensions());
   DimensionVector rhs_non_contracting_dims = GetNonContractingDims(
-      rhs_shape.dimensions().size(), dim_numbers.rhs_batch_dimensions(),
-      dim_numbers.rhs_contracting_dimensions());
+      rhs_shape.dimensions().size(), dim_numbers.rhs_contracting_dimensions(),
+      dim_numbers.rhs_batch_dimensions());
 
   if (lhs_non_contracting_dims.size() > 1 ||
       rhs_non_contracting_dims.size() > 1) {
@@ -371,13 +374,15 @@ absl::StatusOr<EstimateRunTimeData> EstimateRunTimeForDotOpWithBlockParameters(
   detail::DotProblemInfo dot_info(*dot);
 
   const std::vector<int64_t>& tile_shape = block_params.output_tile_sizes[0];
-  if (tile_shape.size() != 2) {
-    return absl::InvalidArgumentError(
-        absl::StrCat("Tile shape must be of size 2, got ", tile_shape.size()));
+  if (tile_shape.size() != 2 && tile_shape.size() != 3) {
+    return absl::InvalidArgumentError(absl::StrCat(
+        "Tile shape must be of size 2 or 3, got ", tile_shape.size()));
   }
+  int64_t tile_m = tile_shape[tile_shape.size() - 2];
+  int64_t tile_n = tile_shape[tile_shape.size() - 1];
   TF_ASSIGN_OR_RETURN(int64_t block_k, ExtractBlockK(dot));
-  detail::DotTileSize dot_tile{/*m=*/tile_shape[0],
-                               /*n=*/tile_shape[1],
+  detail::DotTileSize dot_tile{/*m=*/tile_m,
+                               /*n=*/tile_n,
                                /*k=*/block_k};
 
   EstimateRunTimeData estimates;
