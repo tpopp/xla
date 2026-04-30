@@ -578,6 +578,8 @@ std::optional<std::unique_ptr<Executable>> Autotuner::Compile(
             << " as exclude_cublas_config is set.";
     return std::nullopt;
   }
+  VLOG(4) << "Compiling config " << config.ToString() << " for HLO "
+          << instr->ToString();
   absl::StatusOr<std::unique_ptr<Executable>> executable =
       config.codegen_backend->Compile(*instr, *config.backend_config);
 
