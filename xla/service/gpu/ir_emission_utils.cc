@@ -179,12 +179,6 @@ bool IsMosaicWithMultimem(const HloInstruction& hlo) {
                            "multimem_parameters");
 }
 
-bool IsMosaicWithCollectiveMetadata(const HloInstruction& hlo) {
-  return IsCustomCallToMosaicGpu(hlo) &&
-         absl::StrContains(hlo.raw_backend_config_string(),
-                           "uses_xla_collective_metadata");
-}
-
 bool IsCollectiveMosaicGpuInstruction(const HloInstruction& hlo) {
   return IsMosaicWithNvshmem(hlo) || IsMosaicWithMultimem(hlo);
 }
