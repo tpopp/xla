@@ -3865,21 +3865,39 @@ cc_library(
 xla_test(
     name = "ragged_all_to_all_test",
     srcs = ["ragged_all_to_all_test.cc"],
+    backend_tags = {
+        "gpu": [
+            "multi_gpu",
+        ],
+    },
     backends = ["gpu"],
     disabled_backends = [],
+    tags = [
+        "cuda-only",
+        "gpu",
+    ],
     deps = [
         ":ragged_all_to_all",
         "//xla:shape_util",
         "//xla:xla_data_proto_cc",
+        "//xla/backends/gpu/collectives:nccl_symmetric_memory",
+        "//xla/core/collectives:symmetric_memory",
         "//xla/stream_executor:device_address",
         "//xla/stream_executor:device_address_handle",
+        "//xla/stream_executor:memory_allocation",
+        "//xla/stream_executor:memory_allocator",
+        "//xla/stream_executor:memory_space",
         "//xla/stream_executor:platform",
         "//xla/stream_executor:platform_manager",
         "//xla/stream_executor:stream",
+        "//xla/stream_executor/cuda:cuda_platform_id",
         "//xla/stream_executor/gpu:gpu_init",
         "//xla/stream_executor/gpu:ragged_all_to_all_kernel",
         "//xla/stream_executor/host:host_platform",
+        "//xla/tsl/concurrency:executor",
+        "//xla/tsl/concurrency:future",
         "//xla/tsl/lib/core:status_test_util",
+        "//xla/tsl/platform:env",
         "//xla/tsl/platform:test",
         "//xla/tsl/platform:test_main",
         "@com_google_absl//absl/algorithm:container",
@@ -3887,6 +3905,7 @@ xla_test(
         "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/types:span",
         "@com_google_googletest//:gtest",
+        "@local_config_nccl//:nccl",
     ],
 )
 

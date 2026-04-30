@@ -522,7 +522,10 @@ cc_library(
         "cuda-only",
         "gpu",
     ],
-    visibility = ["//xla/stream_executor/cuda:__subpackages__"],
+    visibility = [
+        "//xla/backends/gpu/runtime:__subpackages__",
+        "//xla/stream_executor/cuda:__subpackages__",
+    ],
     deps = [
         ":nccl_errors",
         "//xla/core/collectives:rank_id",
