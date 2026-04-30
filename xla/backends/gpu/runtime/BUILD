@@ -3852,7 +3852,6 @@ cc_library(
         "//xla/stream_executor:device_address",
         "//xla/stream_executor:launch_dim",
         "//xla/stream_executor:stream",
-        "//xla/stream_executor:stream_executor_h",
         "//xla/stream_executor/gpu:gpu_kernel_registry",
         "//xla/stream_executor/gpu:ragged_all_to_all_kernel",
         "//xla/tsl/platform:statusor",

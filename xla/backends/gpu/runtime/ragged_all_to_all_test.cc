@@ -374,7 +374,7 @@ TEST_F(RaggedAllToAllKernelTest, KernelWithSymmetricMemory) {
                            output_buffers_symmetric_memory,
                        CreateSymmetricMemory(exec, comms, output_buffers));
 
-  TF_ASSERT_OK(RunRaggedAllToAllKernel(
+  TF_ASSERT_OK(RunRaggedAllToAllWithSymmetricMemoryKernel(
       streams[0].get(), primitive_util::NativeToPrimitiveType<T>(),
       input_buffer.address(), output_buffers_symmetric_memory[0].get(),
       input_offsets_buffer.address(), send_sizes_buffer.address(),
