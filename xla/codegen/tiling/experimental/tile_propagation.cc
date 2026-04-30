@@ -744,7 +744,7 @@ absl::StatusOr<Tile> PropagateTileForBitcastOp(const Tile& tile,
   if (ShapeUtil::ReshapeIsBitcast(src, dst, /*ignore_element_type=*/true)) {
     return PropagateTileThroughReshape(tile, src, dst);
   }
-  // Bitcast is a `trt`, i.e. transpose-reshape-transpose.
+  // Bitcast is transpose-reshape-transpose.
   auto maybe_trt = ShapeUtil::DecomposeBitcastToTrt(src, dst);
   if (!maybe_trt.has_value()) {
     return absl::InvalidArgumentError("Bitcast is not decomposable to TRT.");
@@ -753,8 +753,8 @@ absl::StatusOr<Tile> PropagateTileForBitcastOp(const Tile& tile,
   Tile transpose1_tile =
       PropagateTileThroughTransposeOp(tile, trt.transpose1_dims);
   ASSIGN_OR_RETURN(auto reshape_tile, PropagateTileThroughReshape(
-                                          transpose1_tile, trt.reshape_shape,
-                                          trt.transpose1_shape));
+                                          transpose1_tile, trt.transpose1_shape,
+                                          trt.reshape_shape));
   return PropagateTileThroughTransposeOp(reshape_tile, trt.transpose2_dims);
 }
 
