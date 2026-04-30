@@ -169,11 +169,7 @@ class CommonPjRtRawBuffer : public PjRtRawBuffer {
       tsl::AsyncValueRef<bool> allocation_event);
 
   // Returns the async value associated with the buffer.
-  virtual absl::StatusOr<tsl::RCReference<tsl::AsyncValue>>
-  GetRawBufferAsyncValue() {
-    return absl::UnimplementedError(
-        "GetRawBufferAsyncValue is not implemented.");
-  }
+  virtual tsl::AsyncValue* GetRawBufferAsyncValue() = 0;
 
   virtual bool is_mutable() const { return true; }
 };
