@@ -17,6 +17,7 @@ limitations under the License.
 #define XLA_SERVICE_GPU_MODEL_GPU_DOT_FUSION_COST_MODEL_H_
 
 #include <cstdint>
+#include <optional>
 
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
@@ -40,7 +41,8 @@ absl::StatusOr<int64_t> ExtractBlockK(const HloDotInstruction* dot);
 // Flops with tile and wave quant.
 absl::StatusOr<EstimateRunTimeData> EstimateRunTimeForDotOpWithBlockParameters(
     const HloDotInstruction* dot, const BlockLevelParameters& block_params,
-    const se::DeviceDescription& device_info);
+    const se::DeviceDescription& device_info,
+    std::optional<int64_t> block_k = std::nullopt);
 
 namespace detail {
 
