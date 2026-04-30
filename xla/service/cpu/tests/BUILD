@@ -365,6 +365,7 @@ onednn_cc_test(
     copts = tsl_copts(),
     shard_count = 4,
     tags = [
+        "manual",
         "no_oss",
         "notap",
         "pjrt_migration_candidate",
@@ -386,6 +387,7 @@ onednn_cc_test(
     copts = tsl_copts(),
     tags = [
         # TODO: reenable once onednn is supported by the thunk runtime.
+        "manual",
         "no_oss",
         "notap",
         "pjrt_migration_candidate",
@@ -435,6 +437,7 @@ xla_cc_test(
     copts = tsl_copts(),
     tags = [
         # TODO: reenable once onednn is supported by the thunk runtime.
+        "manual",
         "no_oss",
         "notap",
         "pjrt_migration_candidate",
