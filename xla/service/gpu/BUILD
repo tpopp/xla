@@ -2275,7 +2275,6 @@ xla_test(
     use_legacy_runtime = True,
     deps = [
         "//xla:xla_data_proto_cc",
-        "//xla/hlo/experimental/auto_sharding:auto_sharding_option",
         "//xla/hlo/ir:hlo",
         "//xla/hlo/testlib:pattern_matcher_gmock",
         "//xla/service:hlo_module_config",
