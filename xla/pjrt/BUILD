@@ -138,6 +138,7 @@ cc_library(
         "host_to_device_transfer_manager.cc",
     ],
     hdrs = [
+        "abstract_tracked_device_buffer.h",
         "common_pjrt_client.h",
         "host_to_device_transfer_manager.h",
     ],
