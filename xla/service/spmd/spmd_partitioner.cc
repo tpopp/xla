@@ -6916,7 +6916,11 @@ void SpmdPartitioningVisitor::SetPartitionedHlo(
     // Skip manual sharding because our toolings currently don't support it.
     // TODO(b/444750067): handle manual sharding.
     partitioned_hlo.hlo()->set_original_value(nullptr);
-  } else if (!sharding.IsReplicated()) {
+  } else if (sharding.IsReplicated()) {
+    // Propagate the original value because replicated means all partitions have
+    // the same value.
+    partitioned_hlo.hlo()->set_original_value(hlo->original_value());
+  } else {
     // Adds recovery computation to the original value recovery table.
     auto* module = const_cast<HloModule*>(hlo->parent()->parent());
     auto build_recovery_computation =
