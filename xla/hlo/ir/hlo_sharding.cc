@@ -1225,7 +1225,7 @@ OpSharding HloSharding::ToProto() const {
   // If we successfully factorized the iota tile assignment, the resulting
   // mesh is guaranteed to be an iota mesh (0, 1, ..., N-1) corresponding
   // to the linearized order of the reshape dimensions (permuted).
-  Mesh mesh = result.has_value()
+  Mesh mesh = (result.has_value() && result->iota.has_value())
                   ? Mesh(local_mesh, axes_names_views)
                   : Mesh(tile_assignment.array(), axes_names_views);
 
