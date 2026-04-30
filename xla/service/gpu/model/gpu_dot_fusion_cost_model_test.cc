@@ -218,6 +218,35 @@ backend_config={"sizes":["32"]}
   ASSERT_GT(absl::ToInt64Microseconds(runtime_h100.exec_time), 0);
 }
 
+// We support 4D and higher rank GEMMs to handle multi-dimensional batching
+// (such as having independent head and batch dimensions in multi-head
+// attention workloads) without requiring explicit reshape or flattening ops.
+TEST_F(GpuDotFusionCostModelTest, GpuDot4DGemm) {
+  TF_ASSERT_OK_AND_ASSIGN(std::unique_ptr<VerifiedHloModule> module,
+                          ParseAndReturnVerifiedModule(R"(
+ENTRY e {
+p0 = bf16[2,8,1024,2048] parameter(0)
+p1 = bf16[2,8,2048,1024] parameter(1)
+ROOT r = bf16[2,8,1024,1024] dot(p0, p1),
+lhs_batch_dims={0,1}, rhs_batch_dims={0,1}, lhs_contracting_dims={3}, rhs_contracting_dims={2}, algorithm=dot_bf16_bf16_bf16,
+backend_config={"sizes":["32"]}
+})"));
+
+  BlockLevelParameters block_params;
+  block_params.output_tile_sizes = {{1, 1, 128, 256}};
+  block_params.num_warps = 4;
+  block_params.num_ctas = 1;
+  block_params.num_stages = 1;
+  auto* dot =
+      Cast<HloDotInstruction>(module->entry_computation()->root_instruction());
+  ASSERT_IS_OK(gpu_dot_fusion_cost_model::IsSupported(dot));
+  TF_ASSERT_OK_AND_ASSIGN(
+      EstimateRunTimeData runtime_h100,
+      gpu_dot_fusion_cost_model::EstimateRunTimeForDotOpWithBlockParameters(
+          dot, block_params, ddh100_));
+  ASSERT_GT(absl::ToInt64Microseconds(runtime_h100.exec_time), 0);
+}
+
 }  // namespace
 }  // namespace gpu
 }  // namespace xla

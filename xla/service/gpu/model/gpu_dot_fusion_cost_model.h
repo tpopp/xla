@@ -63,6 +63,7 @@ struct DotTileSize {
   int64_t m = 0;
   int64_t n = 0;
   int64_t k = 0;
+  int64_t b = 1;
 };
 
 // Returns the effective HBM bandwidth in bytes per second for a given dma_size.
