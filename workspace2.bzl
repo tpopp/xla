@@ -36,8 +36,10 @@ load("//third_party/mkl_dnn:workspace.bzl", onednn = "repo")
 load("//third_party/mpitrampoline:workspace.bzl", mpitrampoline = "repo")
 load("//third_party/nanobind:workspace.bzl", nanobind = "repo")
 load("//third_party/nasm:workspace.bzl", nasm = "repo")
+load("//third_party/nccl:workspace.bzl", nccl = "repo")
 load("//third_party/net_zstd:workspace.bzl", net_zstd = "repo")
 load("//third_party/nvshmem:workspace.bzl", nvshmem = "repo")
+load("//third_party/nvtx:workspace.bzl", nvtx = "repo")
 load("//third_party/pthreadpool:workspace.bzl", pthreadpool = "repo")
 load("//third_party/py:python_configure.bzl", "python_configure")
 load("//third_party/py/ml_dtypes:workspace.bzl", ml_dtypes = "repo")
@@ -94,8 +96,10 @@ def _initialize_third_party():
     mpitrampoline()
     nanobind()
     nasm()
+    nccl()
     net_zstd()
     nvshmem()
+    nvtx()
     onednn()
     pybind11_abseil()
     pybind11_bazel()
@@ -376,23 +380,6 @@ def _tf_repositories():
         sha256 = "736aeb64d86566d2236ddffa2865ee5d7a82d26c9016b36218fcc27ea4f09f86",
         strip_prefix = "snappy-1.2.1",
         urls = tf_mirror_urls("https://github.com/google/snappy/archive/refs/tags/1.2.1.tar.gz"),
-    )
-
-    tf_http_archive(
-        name = "nccl_archive",
-        build_file = "//third_party/nccl:archive.BUILD",
-        patch_file = ["//third_party/nccl:archive.patch"],
-        sha256 = "e67239212c395bfdb398a7519491840d06fdf6b599c299f97c7ed0109777bba1",
-        strip_prefix = "nccl-2.29.7-1",
-        urls = tf_mirror_urls("https://github.com/NVIDIA/nccl/archive/refs/tags/v2.29.7-1.tar.gz"),
-    )
-
-    tf_http_archive(
-        name = "nvtx_archive",
-        build_file = "//third_party:nvtx/BUILD.bazel",
-        sha256 = "5a581c3234c5a6b2fd94363e3fdd5a4f5d2a3d9c53c4b9442b0784e6cdfe722c",
-        strip_prefix = "NVTX-2942f167cc30c5e3a44a2aecd5b0d9c07ff61a07/c/include",
-        urls = tf_mirror_urls("https://github.com/NVIDIA/NVTX/archive/2942f167cc30c5e3a44a2aecd5b0d9c07ff61a07.tar.gz"),
     )
 
     tf_http_archive(
