@@ -191,7 +191,7 @@ absl::StatusOr<PjRtDeviceEventRef> CpuRawBuffer::CopyFromHostBuffer(
     AsyncWorkRunner* async_work_runner, tsl::thread::ThreadPool* thread_pool,
     int max_transpose_threads) {
   CommonPjRtClient* client =
-      tensorflow::down_cast<CommonPjRtClient*>(memory_space()->client());
+      absl::down_cast<CommonPjRtClient*>(memory_space()->client());
   tsl::AsyncValueRef<CpuDeviceMemory> device_buffer = buffer_;
   bool has_default_layout =
       !byte_strides || HasMajorToMinorLayout(type, dims, *byte_strides);
@@ -341,7 +341,7 @@ void CpuRawBuffer::CopyToLiteralAsync(
     Promise<> promise, tsl::RCReference<PjRtDeviceEventPromise> device_promise,
     MutableLiteralBase* literal, xla::Shape shape) {
   CommonPjRtClient* client =
-      tensorflow::down_cast<CommonPjRtClient*>(memory_space()->client());
+      absl::down_cast<CommonPjRtClient*>(memory_space()->client());
   client->async_work_runner()->Execute(
       [client, buffer = buffer_, promise = std::move(promise),
        device_promise = std::move(device_promise), literal, shape]() mutable {
