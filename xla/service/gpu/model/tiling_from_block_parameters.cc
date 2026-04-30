@@ -46,7 +46,8 @@ using DimensionSemantics =
 
 absl::StatusOr<Tiling> TilingFromAnnotatedFusion(
     const SymbolicTileAnalysis& symbolic_tile_analysis,
-    const BlockLevelParameters& block_level_parameters) {
+    const BlockLevelParameters& block_level_parameters,
+    const Tile* dot_tiling_config_override) {
   Tiling::TileMapping tile_mapping;
   int64_t real_root_index = symbolic_tile_analysis.real_root_index();
   const HloInstruction* real_root =
@@ -57,9 +58,15 @@ absl::StatusOr<Tiling> TilingFromAnnotatedFusion(
     // TODO(b/419026602): handle reductions.
     if (hlo->opcode() == HloOpcode::kDot ||
         hlo->opcode() == HloOpcode::kScaledDot) {
-      TF_ASSIGN_OR_RETURN(Tile tile_config, hlo->backend_config<Tile>());
-      tile_mapping[hlo] =
-          FlatTiling(tile_config.sizes().begin(), tile_config.sizes().end());
+      if (dot_tiling_config_override) {
+        tile_mapping[hlo] =
+            FlatTiling(dot_tiling_config_override->sizes().begin(),
+                       dot_tiling_config_override->sizes().end());
+      } else {
+        TF_ASSIGN_OR_RETURN(Tile tile_config, hlo->backend_config<Tile>());
+        tile_mapping[hlo] =
+            FlatTiling(tile_config.sizes().begin(), tile_config.sizes().end());
+      }
     }
 
     // TODO(b/390559452): this should change for generalized multi-output
