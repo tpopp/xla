@@ -369,6 +369,11 @@ xla_test(
             "multi_gpu",
             "broken",
         ],
+        # See b/491475964 for details.
+        "gb300": [
+            "multi_gpu",
+            "broken",
+        ],
     },
     backends = ["gpu"],
     env = {
