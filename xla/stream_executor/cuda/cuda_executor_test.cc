@@ -15,7 +15,6 @@ limitations under the License.
 
 #include "xla/stream_executor/cuda/cuda_executor.h"
 
-#include <cstddef>
 #include <cstdint>
 #include <memory>
 
@@ -238,9 +237,7 @@ TEST(CudaExecutorTest, AllocateMemoryWithVmmApi) {
       cuda_executor->Allocate(1024, static_cast<int>(MemorySpace::kP2P));
 
   EXPECT_NE(ptr.opaque(), nullptr);
-  TF_ASSERT_OK_AND_ASSIGN(size_t granularity,
-                          cuda_executor->GetVmmGranularity());
-  EXPECT_EQ(ptr.size(), granularity);
+  EXPECT_EQ(ptr.size(), 1024);
   EXPECT_THAT(executor->GetPointerMemorySpace(ptr.opaque()),
               absl_testing::IsOkAndHolds(MemorySpace::kDevice));
 

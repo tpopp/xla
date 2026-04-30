@@ -62,7 +62,6 @@ limitations under the License.
 #include "xla/stream_executor/cuda/cuda_compute_capability.h"
 #include "xla/stream_executor/cuda/cuda_context.h"
 #include "xla/stream_executor/cuda/cuda_core_info_table.h"
-#include "xla/stream_executor/cuda/cuda_device_allocator.h"
 #include "xla/stream_executor/cuda/cuda_event.h"
 #include "xla/stream_executor/cuda/cuda_host_allocator.h"
 #include "xla/stream_executor/cuda/cuda_kernel.h"
@@ -71,7 +70,6 @@ limitations under the License.
 #include "xla/stream_executor/cuda/cuda_stream.h"
 #include "xla/stream_executor/cuda/cuda_timer.h"
 #include "xla/stream_executor/cuda/cuda_version_parser.h"
-#include "xla/stream_executor/cuda/cuda_vmm_allocator.h"
 #include "xla/stream_executor/cuda/cudnn_api_wrappers.h"
 #include "xla/stream_executor/cuda/tma_util.h"
 #include "xla/stream_executor/device_address.h"
@@ -533,26 +531,13 @@ absl::StatusOr<bool> IsMulticastSupported(CUdevice device) {
   return is_multicast_supported;
 }
 
-absl::StatusOr<bool> IsFabricSupported(CUdevice device) {
-  int fabric_supported = 0;
-  TF_RETURN_IF_ERROR(cuda::ToStatus(cuDeviceGetAttribute(
-      &fabric_supported, CU_DEVICE_ATTRIBUTE_HANDLE_TYPE_FABRIC_SUPPORTED,
-      device)));
-  return fabric_supported;
-}
-
 CUmemAllocationProp GetVmmAllocationProperties(CUdevice device,
-                                               bool is_rdma_supported,
-                                               bool is_fabric_supported) {
+                                               bool is_rdma_supported) {
   CUmemAllocationProp properties = {};
   properties.type = CU_MEM_ALLOCATION_TYPE_PINNED;
   properties.location.type = CU_MEM_LOCATION_TYPE_DEVICE;
-  int handle_types = CU_MEM_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR;
-  if (is_fabric_supported) {
-    handle_types |= CU_MEM_HANDLE_TYPE_FABRIC;
-  }
   properties.requestedHandleTypes =
-      static_cast<CUmemAllocationHandleType>(handle_types);
+      static_cast<CUmemAllocationHandleType>(CU_MEM_HANDLE_TYPE_NONE);
   properties.location.id = device;
   properties.allocFlags.gpuDirectRDMACapable = is_rdma_supported ? 1 : 0;
   return properties;
@@ -784,7 +769,7 @@ CudaExecutor::VmmMemoryHandle& CudaExecutor::VmmMemoryHandle::operator=(
 
 absl::StatusOr<CudaExecutor::VmmMemoryHandle>
 CudaExecutor::RetainVmmMemoryHandle(void* ptr) const {
-  if (vmm_granularity_ == 0) {
+  if (!is_vmm_supported_) {
     return absl::InternalError("VMM is not supported on this device.");
   }
 
@@ -795,8 +780,8 @@ CudaExecutor::RetainVmmMemoryHandle(void* ptr) const {
 }
 
 absl::StatusOr<size_t> CudaExecutor::GetVmmGranularity() const {
-  CUmemAllocationProp properties = GetVmmAllocationProperties(
-      device_, is_rdma_supported_, is_fabric_supported_);
+  CUmemAllocationProp properties =
+      GetVmmAllocationProperties(device_, is_rdma_supported_);
   size_t granularity = 0;
   TF_RETURN_IF_ERROR(cuda::ToStatus(cuMemGetAllocationGranularity(
       &granularity, &properties, CU_MEM_ALLOC_GRANULARITY_RECOMMENDED)));
@@ -892,18 +877,9 @@ CudaExecutor::CreateMemoryAllocator(MemorySpace type) {
 
 absl::Status CudaExecutor::Init() {
   TF_ASSIGN_OR_RETURN(device_, GetDevice(device_ordinal()));
-
-  TF_ASSIGN_OR_RETURN(bool is_vmm_supported, IsVmmSupported(device_));
-  if (!is_vmm_supported) {
-    return absl::InternalError(absl::StrFormat(
-        "Device %d does not support CUDA Virtual Memory Management (VMM). "
-        "VMM is required for device memory allocation in XLA.",
-        device_ordinal()));
-  }
-
+  TF_ASSIGN_OR_RETURN(is_vmm_supported_, IsVmmSupported(device_));
   TF_ASSIGN_OR_RETURN(is_rdma_supported_, IsRdmaSupported(device_));
   TF_ASSIGN_OR_RETURN(is_multicast_supported_, IsMulticastSupported(device_));
-  TF_ASSIGN_OR_RETURN(is_fabric_supported_, IsFabricSupported(device_));
   TF_ASSIGN_OR_RETURN(CudaContext * context,
                       CudaContext::Create(device_ordinal(), device_));
   cuda_context_ = context;
@@ -914,6 +890,13 @@ absl::Status CudaExecutor::Init() {
     XLA_VLOG_DEVICE(2, device_ordinal()) << "Could not determine NUMA node";
   }
 
+  device_allocator_ = std::make_unique<CudaDeviceAllocator>(this);
+  host_allocator_ = std::make_unique<CudaHostAllocator>(this, numa_node_);
+  if (is_vmm_supported_) {
+    vmm_allocator_ =
+        std::make_unique<CudaVmmAllocator>(this, is_rdma_supported_);
+  }
+
   int cuda_device_count = 0;
   TF_RETURN_IF_ERROR(cuda::ToStatus(cudaGetDeviceCount(&cuda_device_count)));
   for (int i = 0; i < cuda_device_count; ++i) {
@@ -921,25 +904,9 @@ absl::Status CudaExecutor::Init() {
       peer_access_cache_[i] = true;
       continue;
     }
+
     peer_access_cache_[i] = CanEnablePeerAccess(device_, i);
   }
-
-  CUmemAllocationProp properties = GetVmmAllocationProperties(
-      device_, is_rdma_supported_, is_fabric_supported_);
-  TF_RETURN_IF_ERROR(cuda::ToStatus(cuMemGetAllocationGranularity(
-      &vmm_granularity_, &properties, CU_MEM_ALLOC_GRANULARITY_RECOMMENDED)));
-
-  CudaVmmAllocator::Options vmm_options;
-  vmm_options.alignment = vmm_granularity_;
-  vmm_options.enable_peer_access = absl::c_any_of(
-      peer_access_cache_, [](const auto& p) { return p.second; });
-  vmm_options.enable_fabric_handle = is_fabric_supported_;
-  vmm_options.is_rdma_supported = is_rdma_supported_;
-
-  device_allocator_ = std::make_unique<CudaDeviceAllocator>(this);
-  host_allocator_ = std::make_unique<CudaHostAllocator>(this, numa_node_);
-  vmm_allocator_ = std::make_unique<CudaVmmAllocator>(this, vmm_options);
-
   return absl::OkStatus();
 }
 
@@ -1274,7 +1241,7 @@ DeviceAddressBase CudaExecutor::Allocate(uint64_t size, int64_t memory_space) {
   }
 
   if (memory_space == static_cast<int64_t>(MemorySpace::kP2P) &&
-      vmm_granularity_ > 0) {
+      is_vmm_supported_) {
     return AllocateAndTrack(*vmm_allocator_, size, "vmm");
   }
 
@@ -1916,8 +1883,7 @@ absl::Status CudaExecutor::CudaMulticastMemory::Initialize(
   }
 
   CUmemAllocationProp properties = GetVmmAllocationProperties(
-      cuda_executor->device_, cuda_executor->is_rdma_supported_,
-      cuda_executor->is_fabric_supported_);
+      cuda_executor->device_, cuda_executor->is_rdma_supported_);
   TF_RETURN_IF_ERROR(cuda::ToStatus(cuMemGetAllocationGranularity(
       &granularity_, &properties, CU_MEM_ALLOC_GRANULARITY_RECOMMENDED)));
 
