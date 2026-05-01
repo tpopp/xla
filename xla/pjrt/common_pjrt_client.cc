@@ -1029,7 +1029,7 @@ absl::Status CommonPjRtLoadedExecutable::ExecutePrepare(
       client()->allow_fallback_for_donation()));
 
   absl::InlinedVector<PjRtRawBufferRef, 4> output_leaf_buffers;
-  if (!is_error) {
+  if (!is_error || !client()->supports_predetermined_error()) {
     // Allocate output with input reuse. Any allocation errors are returned
     // immediately. Derived classes may use custom logic for allocation.
     TF_ASSIGN_OR_RETURN(output_leaf_buffers,

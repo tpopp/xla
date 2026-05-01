@@ -72,6 +72,7 @@ class CommonPjRtClient : public PjRtClient {
   virtual bool supports_two_phase_launch() const { return true; }
   // TODO(parkers): Properly support error buffers on GPU and CPU.
   virtual bool include_raw_buffer_in_ready_event() const { return false; }
+  virtual bool supports_predetermined_error() const { return true; }
 
   // Backend specific handlers for when an oom is detected during execute.
   virtual void CallOomHandlers() const {}
