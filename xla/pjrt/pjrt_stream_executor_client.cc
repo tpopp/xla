@@ -559,26 +559,10 @@ PjRtStreamExecutorClient::AllocateRawBufferForExecute(
       this, memory_space, local_device, std::move(mem), on_device_bytes_count);
 }
 
-absl::StatusOr<std::unique_ptr<PjRtBuffer>>
-PjRtStreamExecutorClient::DefineBuffer(
-    std::shared_ptr<const Shape> on_device_shape, PjRtMemorySpace* memory_space,
-    PjRtRawBufferRef raw_buffer,
-    absl::InlinedVector<PjRtDeviceEventRef, 2> definition_device_events) {
-  if (raw_buffer && raw_buffer->memory_space() != memory_space) {
-    return absl::InvalidArgumentError(
-        absl::StrFormat("DefineBuffer: Mismatch in memory spaces: %s vs %s",
-                        raw_buffer->memory_space()->DebugString(),
-                        memory_space->DebugString()));
-  }
-  auto* device = tensorflow::down_cast<PjRtStreamExecutorDevice*>(
-      memory_space->devices()[0]);
-
-  auto dst_device_buffer = std::make_unique<TrackedDeviceBuffer>(
-      device, std::move(raw_buffer), std::move(definition_device_events));
-
-  auto py_buffer = std::make_unique<CommonPjRtBufferImpl>(
-      std::move(on_device_shape), std::move(dst_device_buffer), memory_space);
-  return py_buffer;
+absl::StatusOr<std::unique_ptr<PjRtDeviceEventSet>>
+PjRtStreamExecutorClient::CreateUsageEventSet(
+    PjRtMemorySpace* memory_space) const {
+  return std::make_unique<PjRtStreamExecutorUsageEventSet>();
 }
 
 absl::StatusOr<std::pair<PjRtRawBufferRef,
@@ -866,15 +850,10 @@ PjRtStreamExecutorClient::CreateErrorBuffer(absl::Status error,
       BufferSequencingEvent::Create(this->async_work_runner());
   SetEventAsError(definition_event, error);
 
-  // Create an empty buffer.
-  auto dummy_device_buffer = std::make_unique<TrackedDeviceBuffer>(
-      device, PjRtRawBufferRef(),
-      absl::InlinedVector<PjRtDeviceEventRef, 2>(
-          {PjRtDeviceEventRef(std::move(definition_event))}));
-
-  return std::make_unique<CommonPjRtBufferImpl>(
-      std::make_shared<const Shape>(shape), std::move(dummy_device_buffer),
-      memory);
+  absl::InlinedVector<PjRtDeviceEventRef, 2> definition_events;
+  definition_events.emplace_back(std::move(definition_event));
+  return DefineBuffer(std::make_shared<const Shape>(shape), memory,
+                      PjRtRawBufferRef(), std::move(definition_events));
 }
 
 absl::StatusOr<PjRtDeviceEventRef> PjRtStreamExecutorClient::CreateDeviceEvent(
@@ -987,14 +966,11 @@ PjRtStreamExecutorClient::CreateViewOfDeviceBuffer(
   absl::InlinedVector<PjRtDeviceEventRef, 2> definition_events;
   definition_events.emplace_back(std::move(definition_event));
 
-  auto device_buffer = std::make_unique<TrackedDeviceBuffer>(
-      device,
+  return DefineBuffer(
+      std::make_shared<const Shape>(shape), memory_space,
       tsl::MakeRef<PjRtStreamExecutorRawBuffer>(
           this, memory_space, local_device, std::move(buffer), buffer_size),
       std::move(definition_events));
-  return std::unique_ptr<PjRtBuffer>(std::make_unique<CommonPjRtBufferImpl>(
-      std::make_shared<const Shape>(shape), std::move(device_buffer),
-      memory_space));
 }
 
 absl::Status PjRtStreamExecutorClient::DmaMap(void* data, size_t buffer_size) {
@@ -2827,6 +2803,13 @@ PjRtStreamExecutorLoadedExecutable::GetAbiVersion() const {
 
   return std::make_unique<StreamExecutorPjRtExecutableAbiVersion>(
       client_->platform_id(), std::move(se_abi_version));
+}
+
+absl::Status PjRtStreamExecutorClient::WaitOnStream(
+    PjRtMemorySpace* memory_space, PjRtDeviceEventRef event,
+    std::intptr_t stream) {
+  return event.down_cast<BufferSequencingEvent>()->WaitForEventOnExternalStream(
+      stream);
 }
 
 }  // namespace xla

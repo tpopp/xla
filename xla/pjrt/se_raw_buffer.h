@@ -162,6 +162,11 @@ class PjRtStreamExecutorRawBuffer : public CommonPjRtRawBufferImpl {
     return device_buffer_.GetAsyncValue();
   }
 
+  void DecrefAfter(
+      std::vector<tsl::RCReference<tsl::AsyncValue>> avs) override {
+    DropRef();
+  }
+
  private:
   PjRtStreamExecutorClient* client_;
   PjRtMemorySpace* memory_space_;

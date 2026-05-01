@@ -146,9 +146,7 @@ class CommonPjRtClient : public PjRtClient {
   virtual absl::StatusOr<std::unique_ptr<PjRtBuffer>> DefineBuffer(
       std::shared_ptr<const Shape> on_device_shape,
       PjRtMemorySpace* memory_space, PjRtRawBufferRef raw_buffer,
-      absl::InlinedVector<PjRtDeviceEventRef, 2> definition_device_events) {
-    return absl::UnimplementedError("DefineBuffer is not supported");
-  }
+      absl::InlinedVector<PjRtDeviceEventRef, 2> definition_device_events);
 
   absl::StatusOr<std::unique_ptr<PjRtBuffer>> DefineBuffer(
       Shape on_device_shape, PjRtMemorySpace* memory_space,
@@ -208,6 +206,9 @@ class CommonPjRtClient : public PjRtClient {
       size_t preallocated_size) const {
     LOG(FATAL) << "Implement";
   }
+
+  virtual absl::StatusOr<std::unique_ptr<PjRtDeviceEventSet>>
+  CreateUsageEventSet(PjRtMemorySpace* memory_space) const;
 
   tsl::Future<> MakeTrackedReadyFuture(tsl::AsyncValue* async_value,
                                        PjRtMemorySpace* memory_space,
@@ -349,6 +350,10 @@ class CommonPjRtClient : public PjRtClient {
   virtual void RegisterClientThreadWait(PjRtMemorySpace* memory_space,
                                         tsl::AsyncValue* device_async_value,
                                         absl::string_view description) {}
+
+  virtual absl::Status WaitOnStream(PjRtMemorySpace* memory_space,
+                                    PjRtDeviceEventRef event,
+                                    std::intptr_t stream);
 
  private:
   mutable absl::Mutex gang_scheduler_mu_;

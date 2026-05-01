@@ -78,6 +78,41 @@ void CommonPjRtClient::TrackFuture(PjRtMemorySpace* memory_space,
                                    absl::string_view debug_info,
                                    const Future<>& future) {}
 
+absl::Status CommonPjRtClient::WaitOnStream(PjRtMemorySpace* memory_space,
+                                            PjRtDeviceEventRef event,
+                                            std::intptr_t stream) {
+  return absl::UnimplementedError(
+      "WaitUntilBufferReadyOnStream is only implemented for GPU.");
+}
+
+absl::StatusOr<std::unique_ptr<PjRtDeviceEventSet>>
+CommonPjRtClient::CreateUsageEventSet(PjRtMemorySpace* memory_space) const {
+  return std::make_unique<DefaultUsageEventSet>();
+}
+
+absl::StatusOr<std::unique_ptr<PjRtBuffer>> CommonPjRtClient::DefineBuffer(
+    std::shared_ptr<const Shape> on_device_shape, PjRtMemorySpace* memory_space,
+    PjRtRawBufferRef raw_buffer,
+    absl::InlinedVector<PjRtDeviceEventRef, 2> definition_device_events) {
+  if (on_device_shape->IsTuple()) {
+    return absl::InvalidArgumentError(
+        "DefineBuffer: Can't define a tuple buffer.");
+  }
+  if (raw_buffer && raw_buffer->memory_space() != memory_space) {
+    return absl::InvalidArgumentError(
+        absl::StrFormat("DefineBuffer: Mismatch in memory spaces: %s vs %s",
+                        raw_buffer->memory_space()->DebugString(),
+                        memory_space->DebugString()));
+  }
+  TF_ASSIGN_OR_RETURN(auto usage_events, CreateUsageEventSet(memory_space));
+  return std::make_unique<CommonPjRtBufferImpl>(
+      std::move(on_device_shape),
+      std::make_unique<AbstractTrackedDeviceBuffer>(
+          std::move(raw_buffer), std::move(definition_device_events),
+          std::move(usage_events)),
+      memory_space);
+}
+
 Future<> CommonPjRtClient::CreateProfiledFuture(PjRtMemorySpace* memory_space,
                                                 const char* callee_type,
                                                 const char* callee_method,
@@ -2135,7 +2170,8 @@ CommonPjRtBufferImpl::AcquireExternalReference() {
     }
 
     absl::Status WaitUntilBufferReadyOnStream(std::intptr_t stream) override {
-      return external_reference_.buffer()->WaitUntilBufferReadyOnStream(stream);
+      return external_reference_.buffer()->WaitUntilBufferReadyOnStream(
+          raw_buffer_->memory_space(), stream);
     }
 
     ~ScopedHoldAsExternalReference() override = default;

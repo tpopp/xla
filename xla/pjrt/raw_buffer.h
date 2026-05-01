@@ -172,6 +172,10 @@ class CommonPjRtRawBuffer : public PjRtRawBuffer {
   virtual tsl::AsyncValue* GetRawBufferAsyncValue() = 0;
 
   virtual bool is_mutable() const { return true; }
+
+  // TODO(parkers): This should not be needed, but some backends
+  // require deleting after all events.
+  virtual void DecrefAfter(std::vector<tsl::RCReference<tsl::AsyncValue>> avs);
 };
 
 class RegisterRawBufferFactory {

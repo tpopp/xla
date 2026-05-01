@@ -240,14 +240,6 @@ class PjRtCpuClient final : public CommonPjRtClient {
   std::unique_ptr<PjRtDeviceEventSet> CreateDeviceEventSet(
       size_t preallocated_size) const override;
 
-  using CommonPjRtClient::DefineBuffer;
-
-  absl::StatusOr<std::unique_ptr<PjRtBuffer>> DefineBuffer(
-      std::shared_ptr<const Shape> on_device_shape,
-      PjRtMemorySpace* memory_space, PjRtRawBufferRef raw_buffer,
-      absl::InlinedVector<PjRtDeviceEventRef, 2> definition_device_events)
-      override;
-
   using CommonPjRtClient::GetOnDeviceBytesCount;
   absl::StatusOr<int64_t> GetOnDeviceBytesCount(
       int memory_space_kind, const xla::Shape& shape) const override;
