@@ -6633,30 +6633,6 @@ cc_library(
     ],
 )
 
-cc_library(
-    name = "collective_combiner_utils_cc",
-    srcs = ["collective_combiner_utils.cc"],
-    hdrs = ["collective_combiner_utils.h"],
-    deps = [
-        "//xla:shape_util",
-        "//xla:status_macros",
-        "//xla:xla_data_proto_cc",
-        "//xla/hlo/analysis:hlo_reachability",
-        "//xla/hlo/ir:hlo",
-        "//xla/tsl/platform:errors",
-        "@com_google_absl//absl/container:btree",
-        "@com_google_absl//absl/container:flat_hash_map",
-        "@com_google_absl//absl/container:flat_hash_set",
-        "@com_google_absl//absl/functional:function_ref",
-        "@com_google_absl//absl/log",
-        "@com_google_absl//absl/status",
-        "@com_google_absl//absl/status:statusor",
-        "@com_google_absl//absl/strings",
-        "@com_google_absl//absl/strings:string_view",
-        "@com_google_absl//absl/types:span",
-    ],
-)
-
 xla_cc_test(
     name = "matmul_indexing_utils_test",
     srcs = ["matmul_indexing_utils_test.cc"],
