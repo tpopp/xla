@@ -15,21 +15,25 @@ limitations under the License.
 
 #include "xla/backends/gpu/autotuner/block_level_emitter.h"
 
+#include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <memory>
 #include <utility>
 #include <variant>
 #include <vector>
 
-#include "absl/container/inlined_vector.h"
 #include "absl/log/log.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
+#include "absl/types/span.h"
+#include "mlir/IR/MLIRContext.h"
 #include "xla/autotuning.pb.h"
 #include "xla/backends/autotuner/codegen_backend.h"
 #include "xla/backends/gpu/codegen/triton/support.h"
 #include "xla/backends/gpu/codegen/triton/tma_utils.h"
+#include "xla/hlo/analysis/symbolic_expr.h"
 #include "xla/hlo/ir/hlo_casting_utils.h"
 #include "xla/hlo/ir/hlo_instruction.h"
 #include "xla/hlo/ir/hlo_instructions.h"
@@ -37,8 +41,10 @@ limitations under the License.
 #include "xla/hlo/utils/hlo_traversal.h"
 #include "xla/service/gpu/backend_configs.pb.h"
 #include "xla/service/gpu/ir_emission_utils.h"
+#include "xla/service/gpu/model/fusion_analysis_cache.h"
 #include "xla/service/gpu/model/gpu_indexing_performance_model.h"
 #include "xla/service/instruction_fusion.h"
+#include "xla/shape.h"
 #include "xla/stream_executor/device_description.h"
 #include "xla/stream_executor/gpu/tma_metadata.h"
 #include "xla/tsl/platform/errors.h"
@@ -50,11 +56,6 @@ namespace gpu {
 
 namespace {
 
-std::unique_ptr<BackendConfig> Pack(const BlockLevelFusionConfig& config) {
-  auto any = std::make_unique<BackendConfig>();
-  any->PackFrom(config);
-  return any;
-}
 
 void ExtendConfigsWithTma(
     std::vector<std::unique_ptr<BackendConfig>>& configs) {
@@ -69,7 +70,9 @@ void ExtendConfigsWithTma(
     if (IsTmaRecommended(original_config)) {
       BlockLevelFusionConfig new_config = original_config;
       new_config.set_is_tma_allowed(true);
-      configs.push_back(Pack(new_config));
+      auto any = std::make_unique<google::protobuf::Any>();
+      any->PackFrom(new_config);
+      configs.push_back(std::move(any));
     }
   }
 }
@@ -77,44 +80,17 @@ void ExtendConfigsWithTma(
 
 absl::StatusOr<std::vector<std::unique_ptr<BackendConfig>>>
 BlockLevelEmitterBackend::GetSupportedConfigs(const HloInstruction& instr) {
-  if (!IsSupported(instr)) {
+  absl::StatusOr<std::unique_ptr<BackendConfig>> config =
+      GetDefaultConfig(instr);
+  if (!config.ok()) {
     return std::vector<std::unique_ptr<BackendConfig>>();
   }
-
-  if (instr.has_backend_config()) {
-    auto config = GetDefaultConfig(instr);
-    if (!config.ok()) {
-      return std::vector<std::unique_ptr<BackendConfig>>();
-    }
-    std::vector<std::unique_ptr<BackendConfig>> configs;
-    configs.push_back(std::move(config.value()));
-    return configs;
-  }
-  auto fusion_adaptor =
-      HloFusionAdaptor::ForInstruction(Cast<HloFusionInstruction>(&instr));
-
-  TF_ASSIGN_OR_RETURN(
-      TopKTiledRunTimeDataOrError tiled_runtime_data,
-      indexing_performance_model_.TryFindTopKBestTilingsForFusion(
-          *fusion_adaptor, instr.GetModule()
-                               ->config()
-                               .debug_options()
-                               .xla_gpu_fusion_autotune_top_k_configs()));
-
-  if (std::holds_alternative<FusionDecision>(tiled_runtime_data)) {
-    return std::vector<std::unique_ptr<BackendConfig>>();
-  }
-
-  const auto& tiled_runtime_data_list =
-      std::get<absl::InlinedVector<TiledRunTimeData, 4>>(tiled_runtime_data);
 
   std::vector<std::unique_ptr<BackendConfig>> configs;
-  for (const auto& tiled_runtime_data : tiled_runtime_data_list) {
-    configs.push_back(Pack(
-        tiled_runtime_data.block_level_parameters.ToBlockLevelFusionConfig()));
-  }
+  configs.push_back(std::move(config.value()));
 
-  if (stream_executor::gpu::IsTmaAvailableForDevice(
+  if (!instr.has_backend_config() &&
+      stream_executor::gpu::IsTmaAvailableForDevice(
           target_config().device_description)) {
     ExtendConfigsWithTma(configs);
   }
@@ -123,13 +99,21 @@ BlockLevelEmitterBackend::GetSupportedConfigs(const HloInstruction& instr) {
 }
 
 absl::StatusOr<BlockLevelFusionConfig>
-BlockLevelEmitterBackend::GetCostModelConfig(const HloInstruction& instr) {
+BlockLevelEmitterBackend::GetCostModelConfig(
+    const HloInstruction& instr) const {
+  auto device_info = target_config().device_description;
+  HloFusionAnalysisCache fusion_analysis_cache(device_info);
+  mlir::MLIRContext mlir_context;
+  RegisterSymbolicExprStorage(&mlir_context);
+  GpuPerformanceModelWithIndexingAnalysis indexing_performance_model(
+      &device_info, &fusion_analysis_cache, shape_size_fn_, &mlir_context);
+
   auto fusion_adaptor =
       HloFusionAdaptor::ForInstruction(Cast<HloFusionInstruction>(&instr));
 
   TF_ASSIGN_OR_RETURN(
       TiledRunTimeDataOrError tiled_runtime_data_or_error,
-      indexing_performance_model_.TryFindBestTilingForFusion(*fusion_adaptor));
+      indexing_performance_model.TryFindBestTilingForFusion(*fusion_adaptor));
 
   if (const auto* fusion_decision =
           std::get_if<FusionDecision>(&tiled_runtime_data_or_error)) {
@@ -164,14 +148,18 @@ BlockLevelEmitterBackend::GetDefaultConfig(const HloInstruction& instr) {
           gpu_backend_config.fusion_backend_config();
       // If a BlockLevelFusionConfig is already present, return it directly.
       if (fusion_backend_config.has_block_level_fusion_config()) {
-        return Pack(fusion_backend_config.block_level_fusion_config());
+        auto any = std::make_unique<google::protobuf::Any>();
+        any->PackFrom(fusion_backend_config.block_level_fusion_config());
+        return any;
       }
     }
   }
 
   // No explicit config found - create one from the cost model if possible.
   TF_ASSIGN_OR_RETURN(BlockLevelFusionConfig config, GetCostModelConfig(instr));
-  return Pack(config);
+  auto any = std::make_unique<google::protobuf::Any>();
+  any->PackFrom(config);
+  return any;
 }
 
 absl::Status BlockLevelEmitterBackend::ApplyConfig(
