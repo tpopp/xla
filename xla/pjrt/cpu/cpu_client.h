@@ -294,9 +294,7 @@ class PjRtCpuClient final : public CommonPjRtClient {
       const std::vector<const Shape*>& argument_layout_pointers,
       LayoutCanonicalizationCallback layout_canonicalization_callback,
       CompileOptions options,
-      const AotCompilationOptions* absl_nullable aot_options = nullptr,
-      std::optional<std::vector<std::vector<absl::string_view>>>
-          requested_output_memory_kinds = std::nullopt);
+      const AotCompilationOptions* absl_nullable aot_options = nullptr);
 
   absl::StatusOr<std::unique_ptr<PjRtLoadedExecutable>> LoadInternal(
       std::shared_ptr<PjRtCpuExecutable> cpu_executable,
@@ -404,9 +402,7 @@ class PjRtCpuExecutable final : public PjRtExecutable {
       CompileOptions compile_options,
       std::unique_ptr<Executable> cpu_executable,
       absl::InlinedVector<BufferAllocation::Index, 4> result_buffer_indices,
-      std::unique_ptr<HloModule> unoptimized_hlo_module,
-      std::vector<std::vector<absl::string_view>>
-          requested_output_memory_kinds = {});
+      std::unique_ptr<HloModule> unoptimized_hlo_module);
 
   ~PjRtCpuExecutable() override = default;
 
@@ -429,10 +425,14 @@ class PjRtCpuExecutable final : public PjRtExecutable {
   }
 
   absl::StatusOr<std::vector<std::vector<absl::string_view>>>
-  GetParameterMemoryKinds() const override;
+  GetParameterMemoryKinds() const override {
+    return Unimplemented("GetParameterMemoryKinds is not supported.");
+  }
 
   absl::StatusOr<std::vector<std::vector<absl::string_view>>>
-  GetOutputMemoryKinds() const override;
+  GetOutputMemoryKinds() const override {
+    return Unimplemented("GetOutputMemoryKinds is not supported.");
+  }
 
   absl::StatusOr<CompiledMemoryStats> GetCompiledMemoryStats() const override;
 
@@ -495,7 +495,6 @@ class PjRtCpuExecutable final : public PjRtExecutable {
 
   std::string fingerprint_;
 
-  std::vector<std::vector<absl::string_view>> requested_output_memory_kinds_;
   std::unique_ptr<HloModule> unoptimized_hlo_module_;
 };
 
