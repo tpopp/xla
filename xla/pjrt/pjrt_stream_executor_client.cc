@@ -819,10 +819,9 @@ PjRtStreamExecutorClient::CreateLinkedEventPromise(
                       device->GetLocalDeviceState());
   auto result = tsl::MakeRef<PjRtStreamExecutorDeviceEventPromise>(
       this, local_device, async_work_runner());
-  const auto& event = result->event();
+  PjRtDeviceEventRef event = result->event().CopyRef();
   return std::pair<tsl::RCReference<PjRtDeviceEventPromise>,
-                   PjRtDeviceEventRef>(std::move(result),
-                                       PjRtDeviceEventRef(event));
+                   PjRtDeviceEventRef>(std::move(result), std::move(event));
 }
 
 PjRtDeviceEventRef PjRtStreamExecutorClient::CreateErrorDeviceEvent(
@@ -2012,7 +2011,7 @@ PjRtStreamExecutorRawLoadedExecutable::Execute(
     auto definition_event_promise =
         tsl::MakeRef<PjRtStreamExecutorDeviceEventPromise>(
             client_, device_state, client_->async_work_runner());
-    definition_event = PjRtDeviceEventRef(definition_event_promise->event());
+    definition_event = definition_event_promise->event().CopyRef();
     device_state->async_dispatch_thread()->Schedule(tsl::WithCurrentContext(
         [launch_on_device = std::move(launch_on_device),
          promise = std::move(definition_event_promise)]() mutable {

@@ -210,7 +210,7 @@ class CommonPjRtClient : public PjRtClient {
   virtual absl::StatusOr<std::unique_ptr<PjRtDeviceEventSet>>
   CreateUsageEventSet(PjRtMemorySpace* memory_space) const;
 
-  tsl::Future<> MakeTrackedReadyFuture(tsl::AsyncValue* async_value,
+  tsl::Future<> MakeTrackedReadyFuture(PjRtDeviceEventPtr device_event,
                                        PjRtMemorySpace* memory_space,
                                        const char* callee_type,
                                        const char* callee_method);
@@ -339,16 +339,16 @@ class CommonPjRtClient : public PjRtClient {
   absl::Mutex& gang_scheduler() const { return gang_scheduler_mu_; }
 
   virtual void AppendDescriptionToEvent(
-      PjRtMemorySpace* memory_space, tsl::AsyncValue* device_async_value,
+      PjRtMemorySpace* memory_space, PjRtDeviceEventPtr device_event,
       absl::string_view description,
-      absl::Span<tsl::AsyncValue* const> waiters) {}
+      absl::Span<const PjRtDeviceEventPtr> waiters) {}
 
   virtual void AddEventDependencies(
-      PjRtMemorySpace* memory_space, tsl::AsyncValue* device_async_value,
+      PjRtMemorySpace* memory_space, PjRtDeviceEventPtr device_event,
       absl::Span<const tsl::RCReference<tsl::AsyncValue>> dependencies) {}
 
   virtual void RegisterClientThreadWait(PjRtMemorySpace* memory_space,
-                                        tsl::AsyncValue* device_async_value,
+                                        PjRtDeviceEventPtr device_event,
                                         absl::string_view description) {}
 
   virtual absl::Status WaitOnStream(PjRtMemorySpace* memory_space,

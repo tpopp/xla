@@ -38,8 +38,8 @@ class PjRtStreamExecutorDeviceEventPromise : public PjRtDeviceEventPromise {
                                        LocalDeviceState* local_device,
                                        AsyncWorkRunner* async_work_runner);
 
-  tsl::AsyncValue* async_value() const override {
-    return event_.GetAsyncValue();
+  PjRtDeviceEventPtr event() const override {
+    return PjRtDeviceEventPtr(event_.AsPtr());
   }
 
   void Set(PjRtDeviceEventRef event) override;
@@ -53,9 +53,6 @@ class PjRtStreamExecutorDeviceEventPromise : public PjRtDeviceEventPromise {
 
   void SetReady() override;
 
-  const tsl::AsyncValueRef<BufferSequencingEvent>& event() const {
-    return event_;
-  }
 
   tsl::RCReference<tsl::IndirectAsyncValue>& av() { return av_; }
 

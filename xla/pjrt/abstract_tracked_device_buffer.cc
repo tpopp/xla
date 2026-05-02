@@ -70,8 +70,10 @@ Future<> AbstractTrackedDeviceBuffer::GetReadyFuture(
     }
   }
   if (client->event_tracking_enabled()) {
-    client->AddEventDependencies(memory_space, definition_future.async_value(),
-                                 dependencies);
+    client->AddEventDependencies(
+        memory_space,
+        PjRtDeviceEventPtr::FromAsyncValue(definition_future.async_value()),
+        dependencies);
   }
   auto deps = absl::Span<const tsl::RCReference<tsl::AsyncValue>>(dependencies);
   tsl::RunWhenReady(deps, [definition_event = std::move(definition_promise),

@@ -52,7 +52,9 @@ class CpuTrackedDeviceEventPromise : public PjRtDeviceEventPromise {
       tsl::RCReference<tsl::IndirectAsyncValue> av)
       : av_(av) {}
 
-  tsl::AsyncValue* async_value() const override { return av_.get(); }
+  PjRtDeviceEventPtr event() const override {
+    return PjRtDeviceEventPtr(tsl::AsyncValuePtr<CpuEvent>(av_.get()));
+  }
 
   void Set(PjRtDeviceEventRef event) override;
 
