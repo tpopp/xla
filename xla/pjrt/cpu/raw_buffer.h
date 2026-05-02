@@ -178,6 +178,11 @@ class CpuRawBuffer : public CommonPjRtRawBufferImpl {
     return buffer_.GetAsyncValue();
   }
 
+  absl::StatusOr<PjRtDeviceEventRef> CopyRawToRemoteDevice(
+      Future<std::string> serialized_descriptor, RemoteSendCallback on_done,
+      std::vector<tsl::RCReference<tsl::AsyncValue>> transfer_dependency_avs)
+      override;
+
  private:
   PjRtMemorySpace* const memory_space_;
   tsl::AsyncValueRef<CpuDeviceMemory> buffer_;
