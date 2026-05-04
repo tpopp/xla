@@ -85,13 +85,6 @@ class AotCompilationTest : public HloLegacyGpuTestBase,
     aot_options_->set_gpu_topology(gpu_topology);
   }
 
-  DebugOptions GetDebugOptionsForTest() const override {
-    DebugOptions debug_options =
-        HloHardwareIndependentTestBase::GetDebugOptionsForTest();
-    debug_options.set_xla_gpu_experimental_aot_compiled_thunks(GetParam());
-    return debug_options;
-  }
-
   std::unique_ptr<AotCompilationOptions> aot_options_;
 };
 

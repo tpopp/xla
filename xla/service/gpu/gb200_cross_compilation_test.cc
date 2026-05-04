@@ -88,7 +88,6 @@ class Gb200CrossCompilationTest : public HloPjRtTestBase {
 
     DebugOptions debug_options = GetDebugOptionsForTest();
     debug_options.set_xla_gpu_autotune_level(4);
-    debug_options.set_xla_gpu_experimental_aot_compiled_thunks(true);
     module->mutable_config().set_debug_options(debug_options);
 
     ASSIGN_OR_RETURN(
