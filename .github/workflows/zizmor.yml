@@ -1,4 +1,4 @@
-# Copyright 2024 The OpenXLA Authors. All Rights Reserved.
+# Copyright 2026 The OpenXLA Authors. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,30 +12,30 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ============================================================================
-name: Bazel Tags
-permissions:
-  contents: read
+name: Zizmor
 on:
   pull_request:
   push:
     branches:
       - main
 
+permissions:
+  contents: read
+
 jobs:
-  bazel-tags:
-    runs-on: "linux-x86-n2-16"
-    container:
-      image: "us-docker.pkg.dev/ml-oss-artifacts-published/ml-public-container/ml-build:latest" # zizmor: ignore[unpinned-images]
-    defaults:
-      run:
-        shell: bash
-    timeout-minutes: 10
+  zizmor:
+    name: GitHub Actions Security Analysis
+    runs-on: ubuntu-latest
     steps:
-      - name: "Checking out repository"
+      - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-      - name: "Run bazel build --nobuild //xla/... with retries"
-        run: parallel --ungroup --retries 3 --delay 15 --nonall -- bazel build --nobuild //xla/...
-      - name: "Assert all tags are documented"
-        run: bazel query //xla/... --output=build | python3 build_tools/lint/tags.py
+
+      - name: Install uv dependencies
+        uses: astral-sh/setup-uv@cec208311dfd045dd5311c1add060b2062131d57 # v8.0.0
+
+      - name: Run zizmor
+        run:  uvx zizmor --format=github .github xla
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
