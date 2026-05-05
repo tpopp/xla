@@ -125,9 +125,15 @@ xla_test(
         "h100": ["full"],
         "b200": ["full"],
         "gb200": ["full"],
-        "gb300": ["full"],
     },
-    backends = ["gpu"],
+    backends = [
+        "h100",
+        "a100",
+        "b200",
+        "gb200",
+        "v100",
+        "p100",
+    ],
     tags = [
         "cuda-only",
         "no_oss",  # Stop this test from being run in OSS presubmits
