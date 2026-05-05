@@ -50,6 +50,7 @@ limitations under the License.
 #include "xla/literal.h"
 #include "xla/pjrt/abstract_tracked_device_buffer.h"
 #include "xla/pjrt/device_event.h"
+#include "xla/pjrt/device_event_utils.h"
 #include "xla/pjrt/host_callback.h"
 #include "xla/pjrt/pjrt_client.h"
 #include "xla/pjrt/pjrt_executable.h"
@@ -2292,25 +2293,21 @@ absl::StatusOr<Shape> CommonPjRtBufferImpl::logical_on_device_shape() {
   auto output_shape = tsl::MakeConstructedAsyncValueRef<Shape>(device_shape);
   TF_RETURN_IF_ERROR(AcquireScopedRawBuffer(
       [&](PjRtRawBufferRef raw_buffer,
-          std::vector<tsl::RCReference<tsl::AsyncValue>> definition_events)
+          std::vector<PjRtDeviceEventRef> definition_events)
           -> absl::StatusOr<PjRtDeviceEventRef> {
-        absl::Span<const tsl::RCReference<tsl::AsyncValue>>
-            definition_events_ref = definition_events;
-        buf_client->async_work_runner()->ExecuteWhenReady(
-            definition_events_ref,
+        xla::ExecuteWhenReady(
+            absl::MakeSpan(definition_events), buf_client->async_work_runner(),
             [definition_events = std::move(definition_events),
              raw_buffer = raw_buffer, output_shape = output_shape,
              device_shape = std::move(device_shape)]() mutable {
               tsl::profiler::TraceMe traceme("D2H Read Shape Metadata");
-              // Errors in src buffer are surfaced to user.
-              for (const auto& av : definition_events) {
-                if (auto* error = av->GetErrorIfPresent()) {
-                  output_shape.SetError(absl::InternalError(
-                      absl::StrCat("Cannot read dynamic shape due to error in "
-                                   "device buffer: ",
-                                   error->message())));
-                  return;
-                }
+              absl::Status status = xla::GetErrors(definition_events);
+              if (!status.ok()) {
+                output_shape.SetError(absl::InternalError(
+                    absl::StrCat("Cannot read dynamic shape due to error in "
+                                 "device buffer: ",
+                                 status.message())));
+                return;
               }
               raw_buffer->ReadDynamicShape(output_shape,
                                            std::move(device_shape));
