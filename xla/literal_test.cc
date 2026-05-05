@@ -3468,7 +3468,7 @@ TEST(LiteralTest, SetShapeClearsCustomElementSizeInBitsOnTupleLeafArrays) {
   Literal literal(tuple);
 
   ASSERT_TRUE(literal.shape().IsTuple());
-  ASSERT_EQ(literal.shape().tuple_shapes_size(), 1);
+  ASSERT_EQ(literal.shape().tuple_shapes().size(), 1);
   ASSERT_TRUE(literal.shape().tuple_shapes(0).has_layout());
   EXPECT_EQ(literal.shape().tuple_shapes(0).layout().element_size_in_bits(), 0);
 }
