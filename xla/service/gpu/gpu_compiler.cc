@@ -2652,10 +2652,9 @@ GpuCompiler::CompileToBackendResult(
         compile_module_results,
         CompileModuleToLlvmIr(
             module, llvm_context, target_triple_, data_layout_, PlatformId(),
-            gpu_topology.gpu_target_config().device_description,
-            alias_info.get(), std::move(buffer_size_bytes_function),
-            llvm_options_lock, &kernel_compiler,
-            std::move(cpu_target_machine_options)));
+            gpu_topology, alias_info.get(),
+            std::move(buffer_size_bytes_function), llvm_options_lock,
+            &kernel_compiler, std::move(cpu_target_machine_options)));
   }
 
   for (const std::unique_ptr<llvm::Module>& llvm_module :

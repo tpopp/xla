@@ -120,6 +120,7 @@ cc_library(
         "//xla/hlo/ir:hlo",
         "//xla/service:buffer_assignment",
         "//xla/service:buffer_value",
+        "//xla/service:gpu_topology",
         "//xla/service:hlo_value",
         "//xla/tsl/platform:status_macros",
         "@com_google_absl//absl/base:no_destructor",
@@ -145,6 +146,7 @@ xla_cc_test(
         "//xla/hlo/testlib:hlo_hardware_independent_test_base",
         "//xla/hlo/testlib:verified_hlo_module",
         "//xla/service:buffer_assignment",
+        "//xla/service:gpu_topology",
         "//xla/service:hlo_module_config",
         "//xla/service:hlo_value",
         "//xla/tsl/lib/core:status_test_util",
@@ -960,6 +962,7 @@ cc_library(
         "@llvm-project//llvm:Core",
         "@llvm-project//llvm:Support",
         "@tsl//tsl/platform:protobuf",
+        "@tsl//tsl/platform:regexp",
     ],
 )
 
@@ -1523,6 +1526,7 @@ cc_library(
         "//xla/service:buffer_assignment",
         "//xla/service:buffer_value",
         "//xla/service:dump",
+        "//xla/service:gpu_topology",
         "//xla/service:hlo_proto_cc",
         "//xla/service:logical_buffer",
         "//xla/service/llvm_ir:llvm_command_line_options",
